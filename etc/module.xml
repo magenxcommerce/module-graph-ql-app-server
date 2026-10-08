@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<!--
+  PoC GraphQL application server: runs /graphql inside a FrankenPHP worker
+  with the application kept in memory. No DI, schema or config of its own;
+  registered as a module only so an etc/reset.json shipped here (or in any
+  other module) is picked up by the core Resetter. See README.md.
+-->
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:Module/etc/module.xsd">
+    <module name="Magenx_AppServer">
+        <sequence>
+            <module name="Magento_GraphQl"/>
+        </sequence>
+    </module>
+</config>

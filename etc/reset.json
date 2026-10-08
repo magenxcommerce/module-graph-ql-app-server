@@ -1,0 +1,51 @@
+{
+    "Magento\\Framework\\Mail\\Template\\TransportBuilder": {
+        "messageData": [],
+        "templateIdentifier": null,
+        "templateVars": null,
+        "templateOptions": null
+    },
+    "StripeIntegration\\Payments\\Helper\\Generic": {
+        "magentoCustomerId": null,
+        "currentCustomer": null
+    },
+    "StripeIntegration\\Payments\\Helper\\Quote": {
+        "quoteId": null,
+        "quotesCache": [],
+        "customerDataInvalidated": false
+    },
+    "StripeIntegration\\Payments\\Helper\\Order": {
+        "orderComments": [],
+        "ordersCache": []
+    },
+    "StripeIntegration\\Payments\\Helper\\Subscriptions": {
+        "couponCodes": [],
+        "coupons": [],
+        "subscriptions": [],
+        "invoices": [],
+        "paymentIntents": [],
+        "trialingSubscriptionsAmounts": null,
+        "futureSubscriptionsDetails": null,
+        "shippingTaxPercent": null,
+        "localCache": []
+    },
+    "StripeIntegration\\Payments\\Helper\\SubscriptionSwitch": {
+        "subscriptions": [],
+        "transaction": null
+    },
+    "StripeIntegration\\Payments\\Helper\\RecurringOrderData": {
+        "discountObject": null
+    },
+    "StripeIntegration\\Payments\\Helper\\Compare": {
+        "lastReason": ""
+    },
+    "StripeIntegration\\Payments\\Helper\\RedirectInvoice": {
+        "suppressInvoiceRegisterEvent": false
+    },
+    "StripeIntegration\\Payments\\Helper\\Refunds": {
+        "lastRefundPending": false
+    },
+    "StripeIntegration\\Payments\\Helper\\RequestCache": {
+        "cache": []
+    }
+}

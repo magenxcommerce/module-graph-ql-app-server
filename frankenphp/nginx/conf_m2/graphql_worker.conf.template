@@ -1,0 +1,37 @@
+## FrankenPHP GraphQL worker: /graphql routing (server context).
+## Include in sites-available/magento2.conf before `location /`.
+##
+## php-fpm stays the fallback for everything: requests routed to fpm, and
+## anything the worker refuses (503 + X-Magenx-Worker: out-of-scope) or
+## cannot serve (down, timeout) are internally rewritten to /index.php,
+## exactly what `location /` + try_files does today. REQUEST_URI stays
+## /graphql and the buffered request body is replayed as is.
+
+location = /graphql {
+    if ($graphql_worker_route = fpm) {
+        rewrite ^ /index.php last;
+    }
+
+    proxy_pass http://frankenphp;
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    proxy_set_header Host $host;
+    ## Client IP after real_ip, adopted by the worker as REMOTE_ADDR
+    ## (MAGENX_WORKER_TRUST_X_REAL_IP=1). X-Forwarded-Proto from varnish
+    ## passes through unchanged, as it does to php-fpm.
+    proxy_set_header X-Real-IP $remote_addr;
+
+    ## Connecting inside the docker network takes well under 1 ms; keep this
+    ## short so a stopped worker (stale DNS for up to `valid=30s`) costs
+    ## little before the php-fpm fallback.
+    proxy_connect_timeout 300ms;
+    proxy_send_timeout 30s;
+    proxy_read_timeout 30s;
+
+    proxy_intercept_errors on;
+    error_page 502 503 504 = @graphql_fpm;
+}
+
+location @graphql_fpm {
+    rewrite ^ /index.php last;
+}

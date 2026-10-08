@@ -1,0 +1,28 @@
+## FrankenPHP GraphQL worker: upstream and routing maps (http context).
+## Include right after conf_m2/maps.conf in sites-available/magento2.conf.
+
+upstream frankenphp {
+    ## `resolve` (nginx >= 1.27.3) looks the container up through the stack's
+    ## resolver at runtime: nginx starts even when the frankenphp container is
+    ## stopped or not created yet; /graphql then falls back to php-fpm (502).
+    zone frankenphp 64k;
+    ## max_fails=0: the worker answers out-of-scope requests with 503 on
+    ## purpose; that is a routing answer, not a fault, and must never take
+    ## the worker out of rotation.
+    server frankenphp:8081 resolve max_fails=0;
+    keepalive 32;
+}
+
+## Canary share of anonymous /graphql traffic sent to the worker.
+## Raise step by step once graphql-timing and error logs look clean.
+split_clients "${http_x_forwarded_for}${http_user_agent}" $graphql_worker_canary {
+    10%   worker;
+    *     fpm;
+}
+
+## Customer-token requests always stay on php-fpm (the worker would refuse
+## them anyway; this saves the round trip).
+map $http_authorization $graphql_worker_route {
+    default  $graphql_worker_canary;
+    "~.+"    fpm;
+}
