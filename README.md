@@ -195,7 +195,17 @@ Workers hold system config, store config and DI config in memory.
   ```bash
   docker compose -f docker-compose.yml -f frankenphp/docker-compose.frankenphp.yml restart frankenphp
   # or, same release, workers only (admin API on loopback inside the container):
-  docker compose exec frankenphp /bin/busybox wget -q -O - --post-data '' http://localhost:2019/frankenphp/workers/restart
+  docker compose exec frankenphp /bin/busybox wget -q -O - --post-data '' http://127.0.0.1:2019/frankenphp/workers/restart
+  ```
+
+- **Load:** the admin API also serves Prometheus metrics. A
+  `frankenphp_worker_queue_depth` above 0 means requests are waiting for a
+  free worker; raise `GRAPHQL_WORKERS` (and `GRAPHQL_MAX_THREADS`) if it
+  stays there.
+
+  ```bash
+  docker compose exec frankenphp /bin/busybox wget -qO- http://127.0.0.1:2019/metrics \
+    | grep -E 'frankenphp_(worker_queue_depth|busy_workers|total_workers)'
   ```
 
 - **Admin config save or `cache:flush`:** workers see the change after at
