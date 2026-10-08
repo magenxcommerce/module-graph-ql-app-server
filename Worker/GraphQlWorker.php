@@ -46,6 +46,9 @@ class GraphQlWorker
     private bool $healthy = true;
     private int $handled = 0;
     private int $bootedAt = 0;
+    private int $lastRequestAt = 0;
+    /** Tells worker threads apart: getmypid() is the same for all of them. */
+    private string $id = '';
     private int|false $envMtime = false;
 
     public function __construct(
@@ -101,15 +104,17 @@ class GraphQlWorker
             FILTER_VALIDATE_BOOL
         );
 
+        $this->id = bin2hex(random_bytes(4));
         $this->bootedAt = time();
+        $this->lastRequestAt = $this->bootedAt;
         $this->envMtime = $this->envMtime();
 
         // Start request #1 from the same baseline as every later request.
         $this->resetter->_resetState();
 
         $this->logger->notice(sprintf(
-            'magenx-app-server: worker %d booted in %d ms, memory %s',
-            getmypid(),
+            'magenx-app-server: worker %s booted in %d ms, memory %s',
+            $this->workerName(),
             (int) round((microtime(true) - ($startedAt ?? microtime(true))) * 1000),
             $this->formatMemory()
         ));
@@ -167,6 +172,7 @@ class GraphQlWorker
         }
 
         ++$this->handled;
+        $this->lastRequestAt = time();
         $reasons = [...$reasons, ...$this->recycleReasons()];
         if ($reasons === []) {
             return true;
@@ -177,11 +183,16 @@ class GraphQlWorker
     }
 
     /**
-     * Log that FrankenPHP stopped this worker (shutdown, or an admin API workers/restart).
+     * Log that FrankenPHP stopped this worker without a request to handle.
+     *
+     * FrankenPHP does not say why. The idle time tells the cases apart: an
+     * autoscaled thread (GRAPHQL_MAX_THREADS > GRAPHQL_WORKERS) is
+     * downscaled once idle longer than max_idle_time; shutdown, config
+     * reload and admin API workers/restart stop busy and idle threads alike.
      */
     public function stopped(): void
     {
-        $this->logExit('stopped by FrankenPHP');
+        $this->logExit(sprintf('stopped by FrankenPHP (idle %d s)', time() - $this->lastRequestAt));
     }
 
     private function dispatch(): void
@@ -279,8 +290,8 @@ class GraphQlWorker
         $limits = $this->limits;
         try {
             $this->logger->notice(sprintf(
-                'magenx-app-server: worker %d %s after %d/%d requests, %d/%d s, memory %s (limit %d MB)',
-                getmypid(),
+                'magenx-app-server: worker %s %s after %d/%d requests, %d/%d s, memory %s (limit %d MB)',
+                $this->workerName(),
                 $why,
                 $this->handled,
                 $limits->maxRequests,
@@ -290,8 +301,13 @@ class GraphQlWorker
                 intdiv($limits->maxMemoryBytes, 1024 * 1024)
             ));
         } catch (\Throwable) {
-            error_log('magenx-app-server: worker ' . getmypid() . ' ' . $why);
+            error_log('magenx-app-server: worker ' . $this->workerName() . ' ' . $why);
         }
+    }
+
+    private function workerName(): string
+    {
+        return getmypid() . '/' . $this->id;
     }
 
     private function formatMemory(): string
