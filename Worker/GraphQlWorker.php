@@ -59,8 +59,11 @@ class GraphQlWorker
 
     /**
      * One-time per-worker setup. Must run before the first request.
+     *
+     * @param float|null $startedAt microtime(true) at the start of the worker
+     *                              script, so the boot log covers bootstrap too.
      */
-    public function boot(): void
+    public function boot(?float $startedAt = null): void
     {
         set_error_handler([new ErrorHandler(), 'handler']);
 
@@ -103,6 +106,13 @@ class GraphQlWorker
 
         // Start request #1 from the same baseline as every later request.
         $this->resetter->_resetState();
+
+        $this->logger->notice(sprintf(
+            'magenx-app-server: worker %d booted in %d ms, memory %s',
+            getmypid(),
+            (int) round((microtime(true) - ($startedAt ?? microtime(true))) * 1000),
+            $this->formatMemory()
+        ));
     }
 
     /**
@@ -142,16 +152,36 @@ class GraphQlWorker
      */
     public function afterRequest(): bool
     {
-        $healthy = $this->rollBackOpenTransactions() && $this->healthy;
+        $reasons = [];
+        if (!$this->healthy) {
+            $reasons[] = 'error';
+        }
+        if (!$this->rollBackOpenTransactions()) {
+            $reasons[] = 'open-transaction';
+        }
         try {
             $this->resetter->_resetState();
         } catch (\Throwable $e) {
-            $healthy = false;
+            $reasons[] = 'reset-failed';
             $this->logCritical($e);
         }
 
         ++$this->handled;
-        return $healthy && !$this->mustRecycle();
+        $reasons = [...$reasons, ...$this->recycleReasons()];
+        if ($reasons === []) {
+            return true;
+        }
+
+        $this->logExit('recycling (' . implode(', ', $reasons) . ')');
+        return false;
+    }
+
+    /**
+     * Log that FrankenPHP stopped this worker (shutdown, or an admin API workers/restart).
+     */
+    public function stopped(): void
+    {
+        $this->logExit('stopped by FrankenPHP');
     }
 
     private function dispatch(): void
@@ -218,14 +248,59 @@ class GraphQlWorker
         return false;
     }
 
-    private function mustRecycle(): bool
+    /**
+     * @return string[] the recycle limits this worker has reached
+     */
+    private function recycleReasons(): array
     {
         $limits = $this->limits;
-        return ($limits->maxRequests > 0 && $this->handled >= $limits->maxRequests)
-            || ($limits->maxMemoryBytes > 0 && memory_get_usage() >= $limits->maxMemoryBytes)
-            || ($limits->maxAgeSeconds > 0 && time() - $this->bootedAt >= $limits->maxAgeSeconds)
-            // env.php changed (deploy, cache:enable, db creds): DeploymentConfig is bootstrapped once.
-            || $this->envMtime() !== $this->envMtime;
+        $reasons = [];
+        if ($limits->maxRequests > 0 && $this->handled >= $limits->maxRequests) {
+            $reasons[] = 'max-requests';
+        }
+        if ($limits->maxMemoryBytes > 0 && memory_get_usage() >= $limits->maxMemoryBytes) {
+            $reasons[] = 'max-memory';
+        }
+        if ($limits->maxAgeSeconds > 0 && time() - $this->bootedAt >= $limits->maxAgeSeconds) {
+            $reasons[] = 'max-age';
+        }
+        // env.php changed (deploy, cache:enable, db creds): DeploymentConfig is bootstrapped once.
+        if ($this->envMtime() !== $this->envMtime) {
+            $reasons[] = 'env-changed';
+        }
+        return $reasons;
+    }
+
+    /**
+     * One line per worker exit, so restarts in frankenphp_worker_restarts can be told apart.
+     */
+    private function logExit(string $why): void
+    {
+        $limits = $this->limits;
+        try {
+            $this->logger->notice(sprintf(
+                'magenx-app-server: worker %d %s after %d/%d requests, %d/%d s, memory %s (limit %d MB)',
+                getmypid(),
+                $why,
+                $this->handled,
+                $limits->maxRequests,
+                time() - $this->bootedAt,
+                $limits->maxAgeSeconds,
+                $this->formatMemory(),
+                intdiv($limits->maxMemoryBytes, 1024 * 1024)
+            ));
+        } catch (\Throwable) {
+            error_log('magenx-app-server: worker ' . getmypid() . ' ' . $why);
+        }
+    }
+
+    private function formatMemory(): string
+    {
+        return sprintf(
+            '%.1f MB (peak %.1f MB)',
+            memory_get_usage() / 1048576,
+            memory_get_peak_usage() / 1048576
+        );
     }
 
     private function envMtime(): int|false

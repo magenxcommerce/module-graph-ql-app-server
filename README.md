@@ -59,6 +59,24 @@ Per request:
    - the worker is older than `MAGENX_WORKER_MAX_AGE` seconds (default 300),
    - `app/etc/env.php` changed.
 
+   Each boot and each exit is logged to Magento's `var/log/system.log`
+   (`notice`), so restarts counted by `frankenphp_worker_restarts` can be
+   told apart:
+
+   ```text
+   magenx-app-server: worker 41 booted in 612 ms, memory 38.2 MB (peak 40.1 MB)
+   magenx-app-server: worker 41 recycling (max-age) after 87/500 requests, 3600/3600 s, memory 61.4 MB (peak 80.3 MB) (limit 512 MB)
+   magenx-app-server: worker 41 stopped by FrankenPHP after 12/500 requests, 140/3600 s, memory 52.0 MB (peak 70.9 MB) (limit 512 MB)
+   ```
+
+   Reasons: `error`, `open-transaction`, `reset-failed`, `max-requests`,
+   `max-memory`, `max-age`, `env-changed`. `stopped by FrankenPHP` is a
+   shutdown or an admin API `workers/restart`.
+
+   ```bash
+   grep 'magenx-app-server: worker' var/log/system.log | grep -oE 'booted|recycling \([^)]*\)|stopped by FrankenPHP' | sort | uniq -c
+   ```
+
 The core factory scheme is unchanged for PHP-FPM: only the worker builds
 the custom `ObjectManagerFactory`. Enabling the module adds no DI, plugins
 or observers.
