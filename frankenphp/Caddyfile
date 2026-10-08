@@ -4,8 +4,10 @@
 # see nginx/conf_m2/graphql_worker.conf.template. Paths come from the stack's .env:
 # MAGENTO_ROOT_PATH + CURRENT_SYMLINK is the current release.
 {
-	# Loopback only: restart workers from inside the container.
-	admin localhost:2019
+	# Loopback only: restart workers and read /metrics from inside the container.
+	# An IPv4 literal, not `localhost`: Caddy binds that to 127.0.0.1 alone,
+	# while busybox wget may resolve it to ::1 first and get refused.
+	admin 127.0.0.1:2019
 	auto_https off
 	skip_install_trust
 	# Prometheus metrics on the loopback admin port (/metrics): busy workers,

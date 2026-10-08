@@ -18,6 +18,8 @@ use Magenx\AppServer\Worker\Limits;
 use Magenx\AppServer\Worker\ReadOnlyScope;
 use Magento\Framework\App\Bootstrap;
 
+$startedAt = microtime(true);
+
 if (!function_exists('frankenphp_handle_request')) {
     fwrite(STDERR, "graphql-worker.php must run as a FrankenPHP worker.\n");
     exit(1);
@@ -50,7 +52,7 @@ $worker = new GraphQlWorker(
     ReadOnlyScope::fromEnvironment(),
     BP . '/app/etc/env.php'
 );
-$worker->boot();
+$worker->boot($startedAt);
 
 $handler = static function () use ($worker): void {
     $worker->handle();
@@ -63,5 +65,9 @@ do {
     // the state reset runs here, off the client's latency.
     $keepWorker = $worker->afterRequest();
 } while ($keepRunning && $keepWorker);
+
+if (!$keepRunning && $keepWorker) {
+    $worker->stopped();
+}
 
 exit(0);

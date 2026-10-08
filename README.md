@@ -59,6 +59,24 @@ Per request:
    - the worker is older than `MAGENX_WORKER_MAX_AGE` seconds (default 300),
    - `app/etc/env.php` changed.
 
+   Each boot and each exit is logged to Magento's `var/log/system.log`
+   (`notice`), so restarts counted by `frankenphp_worker_restarts` can be
+   told apart:
+
+   ```text
+   magenx-app-server: worker 41 booted in 612 ms, memory 38.2 MB (peak 40.1 MB)
+   magenx-app-server: worker 41 recycling (max-age) after 87/500 requests, 3600/3600 s, memory 61.4 MB (peak 80.3 MB) (limit 512 MB)
+   magenx-app-server: worker 41 stopped by FrankenPHP after 12/500 requests, 140/3600 s, memory 52.0 MB (peak 70.9 MB) (limit 512 MB)
+   ```
+
+   Reasons: `error`, `open-transaction`, `reset-failed`, `max-requests`,
+   `max-memory`, `max-age`, `env-changed`. `stopped by FrankenPHP` is a
+   shutdown or an admin API `workers/restart`.
+
+   ```bash
+   grep 'magenx-app-server: worker' var/log/system.log | grep -oE 'booted|recycling \([^)]*\)|stopped by FrankenPHP' | sort | uniq -c
+   ```
+
 The core factory scheme is unchanged for PHP-FPM: only the worker builds
 the custom `ObjectManagerFactory`. Enabling the module adds no DI, plugins
 or observers.
@@ -195,7 +213,17 @@ Workers hold system config, store config and DI config in memory.
   ```bash
   docker compose -f docker-compose.yml -f frankenphp/docker-compose.frankenphp.yml restart frankenphp
   # or, same release, workers only (admin API on loopback inside the container):
-  docker compose exec frankenphp /bin/busybox wget -q -O - --post-data '' http://localhost:2019/frankenphp/workers/restart
+  docker compose exec frankenphp /bin/busybox wget -q -O - --post-data '' http://127.0.0.1:2019/frankenphp/workers/restart
+  ```
+
+- **Load:** the admin API also serves Prometheus metrics. A
+  `frankenphp_worker_queue_depth` above 0 means requests are waiting for a
+  free worker; raise `GRAPHQL_WORKERS` (and `GRAPHQL_MAX_THREADS`) if it
+  stays there.
+
+  ```bash
+  docker compose exec frankenphp /bin/busybox wget -qO- http://127.0.0.1:2019/metrics \
+    | grep -E 'frankenphp_(worker_queue_depth|busy_workers|total_workers)'
   ```
 
 - **Admin config save or `cache:flush`:** workers see the change after at
