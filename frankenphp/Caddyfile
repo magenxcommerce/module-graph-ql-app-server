@@ -25,8 +25,12 @@
 	}
 
 	frankenphp {
-		# Must be >= the worker `num` below.
+		# Must be >= the worker `num` below. Above it, FrankenPHP adds worker
+		# threads (each a fresh Magento boot) when requests queue.
 		max_threads {$GRAPHQL_MAX_THREADS:16}
+		# An added thread is stopped again once idle this long (FrankenPHP
+		# default 5s: a boot/stop cycle every few seconds under bursty traffic).
+		max_idle_time {$GRAPHQL_MAX_IDLE_TIME:60s}
 		# Fail fast (nginx then falls back to php-fpm) instead of queueing.
 		max_wait_time 10s
 	}
@@ -34,7 +38,9 @@
 	log {
 		output stderr
 		format json
-		level WARN
+		# INFO: thread upscaling/downscaling, worker restarts and config
+		# reloads, i.e. why a worker logged "stopped by FrankenPHP".
+		level INFO
 	}
 }
 

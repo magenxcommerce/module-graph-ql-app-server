@@ -59,15 +59,14 @@ $handler = static function () use ($worker): void {
 };
 
 do {
-    // false: FrankenPHP is shutting down or restarting workers.
-    $keepRunning = frankenphp_handle_request($handler);
+    // false: FrankenPHP stops this thread (shutdown, restart, config reload,
+    // autoscale downscale) and no request was handled, so nothing to clean up.
+    if (!frankenphp_handle_request($handler)) {
+        $worker->stopped();
+        break;
+    }
     // The response is complete once frankenphp_handle_request() returns, so
     // the state reset runs here, off the client's latency.
-    $keepWorker = $worker->afterRequest();
-} while ($keepRunning && $keepWorker);
-
-if (!$keepRunning && $keepWorker) {
-    $worker->stopped();
-}
+} while ($worker->afterRequest());
 
 exit(0);

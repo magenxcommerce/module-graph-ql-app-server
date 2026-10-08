@@ -64,14 +64,31 @@ Per request:
    told apart:
 
    ```text
-   magenx-app-server: worker 41 booted in 612 ms, memory 38.2 MB (peak 40.1 MB)
-   magenx-app-server: worker 41 recycling (max-age) after 87/500 requests, 3600/3600 s, memory 61.4 MB (peak 80.3 MB) (limit 512 MB)
-   magenx-app-server: worker 41 stopped by FrankenPHP after 12/500 requests, 140/3600 s, memory 52.0 MB (peak 70.9 MB) (limit 512 MB)
+   magenx-app-server: worker 1/9f3c2a1b booted in 612 ms, memory 38.2 MB (peak 40.1 MB)
+   magenx-app-server: worker 1/9f3c2a1b recycling (max-age) after 87/500 requests, 300/300 s, memory 61.4 MB (peak 80.3 MB) (limit 512 MB)
+   magenx-app-server: worker 1/4d07e6c5 stopped by FrankenPHP (idle 62 s) after 12/500 requests, 140/300 s, memory 52.0 MB (peak 70.9 MB) (limit 512 MB)
    ```
 
+   `worker <pid>/<id>`: all worker threads share the FrankenPHP pid (1 in
+   the container), the random id pairs a boot with its exit.
+
    Reasons: `error`, `open-transaction`, `reset-failed`, `max-requests`,
-   `max-memory`, `max-age`, `env-changed`. `stopped by FrankenPHP` is a
-   shutdown or an admin API `workers/restart`.
+   `max-memory`, `max-age`, `env-changed`. `stopped by FrankenPHP` means
+   FrankenPHP stopped the thread between requests; it does not tell PHP why:
+   - idle about `GRAPHQL_MAX_IDLE_TIME` or more: autoscale downscale. With
+     `GRAPHQL_MAX_THREADS` above `GRAPHQL_WORKERS`, FrankenPHP adds a worker
+     thread (a fresh Magento boot) when requests queue, and stops it again
+     once idle that long (FrankenPHP default 5s; this Caddyfile 60s);
+   - otherwise: shutdown, Caddy config reload, or admin API
+     `workers/restart`.
+
+   FrankenPHP logs which one at INFO in the container log (`upscaling
+   worker thread`, `downscaling thread`, `rebooting all PHP threads`,
+   `workers restarted from admin api`):
+
+   ```bash
+   docker logs frankenphp 2>&1 | grep -E 'upscaling|downscaling|rebooting|restarted|stopped'
+   ```
 
    ```bash
    grep 'magenx-app-server: worker' var/log/system.log | grep -oE 'booted|recycling \([^)]*\)|stopped by FrankenPHP' | sort | uniq -c
@@ -219,7 +236,11 @@ Workers hold system config, store config and DI config in memory.
 - **Load:** the admin API also serves Prometheus metrics. A
   `frankenphp_worker_queue_depth` above 0 means requests are waiting for a
   free worker; raise `GRAPHQL_WORKERS` (and `GRAPHQL_MAX_THREADS`) if it
-  stays there.
+  stays there. Frequent `upscaling worker thread` / `downscaling thread`
+  lines mean bursts regularly exceed `GRAPHQL_WORKERS`: raise it, or raise
+  `GRAPHQL_MAX_IDLE_TIME` to keep added threads booted longer. Every thread
+  up to `GRAPHQL_MAX_THREADS` may hold a booted Magento, so size
+  `FRANKENPHP_MEM_LIMIT` for that.
 
   ```bash
   docker compose exec frankenphp /bin/busybox wget -qO- http://127.0.0.1:2019/metrics \
