@@ -1,0 +1,62 @@
+# FrankenPHP in front of Magento /graphql only (magenx docker stack).
+#
+# nginx sends /graphql here and replays refusals and outages on php-fpm,
+# see nginx/conf_m2/graphql_worker.conf.template. Paths come from the stack's .env:
+# MAGENTO_ROOT_PATH + CURRENT_SYMLINK is the current release.
+{
+	# Loopback only: restart workers from inside the container.
+	admin localhost:2019
+	auto_https off
+	skip_install_trust
+	# Prometheus metrics on the loopback admin port (/metrics): busy workers,
+	# frankenphp_worker_queue_depth (requests waiting for a free worker), request times.
+	metrics
+
+	# nginx is the only client: Caddy logs show the real client IP. PHP gets it
+	# from X-Real-IP instead (MAGENX_WORKER_TRUST_X_REAL_IP), since REMOTE_ADDR
+	# is always the TCP peer.
+	servers {
+		trusted_proxies static private_ranges
+		# nginx speaks plain HTTP/1.1 to the worker; HTTP/2 and HTTP/3 would
+		# need TLS and only produce "skipped" warnings at startup.
+		protocols h1
+	}
+
+	frankenphp {
+		# Must be >= the worker `num` below.
+		max_threads {$GRAPHQL_MAX_THREADS:16}
+		# Fail fast (nginx then falls back to php-fpm) instead of queueing.
+		max_wait_time 10s
+	}
+
+	log {
+		output stderr
+		format json
+		level WARN
+	}
+}
+
+:{$FRANKENPHP_PORT:8081} {
+	handle /graphql {
+		root * {$MAGENTO_ROOT_PATH}/{$CURRENT_SYMLINK}/pub
+
+		php_server {
+			worker {
+				name graphql
+				file {$MAGENTO_ROOT_PATH}/{$CURRENT_SYMLINK}/{$GRAPHQL_WORKER_FILE:vendor/magenxcommerce/module-graph-ql-app-server/bin/graphql-worker.php}
+				num {$GRAPHQL_WORKERS:8}
+				match /graphql
+
+				env MAGENTO_ROOT {$MAGENTO_ROOT_PATH}/{$CURRENT_SYMLINK}
+				env MAGE_MODE production
+				env MAGENX_WORKER_MAX_REQUESTS {$MAGENX_WORKER_MAX_REQUESTS:500}
+				env MAGENX_WORKER_MAX_MEMORY_MB {$MAGENX_WORKER_MAX_MEMORY_MB:512}
+				env MAGENX_WORKER_MAX_AGE {$MAGENX_WORKER_MAX_AGE:300}
+			}
+		}
+	}
+
+	handle {
+		respond 404
+	}
+}

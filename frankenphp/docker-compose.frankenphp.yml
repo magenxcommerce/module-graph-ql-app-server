@@ -1,0 +1,101 @@
+# -----------------------------------------------------------------------------------------------------------------------
+#  FrankenPHP GraphQL worker for magenx/Magento-2-docker-configuration
+#
+#  Copy this directory to /opt/${BRAND}/docker/frankenphp, append .env.frankenphp to .env, then:
+#    docker compose -f docker-compose.yml -f frankenphp/docker-compose.frankenphp.yml up -d --build frankenphp
+#
+#  Same code mounts, networks, env and UID as the php service; code is read-only. nginx keeps php-fpm as the
+#  fallback for everything the worker refuses or cannot serve (nginx/graphql_worker.conf).
+# -----------------------------------------------------------------------------------------------------------------------
+services:
+  frankenphp:
+    container_name: frankenphp
+    hostname: frankenphp
+    build:
+      context: ./frankenphp
+      labels:
+        org.opencontainers.image.authors: "admin@magenx.com"
+        org.opencontainers.image.source: "https://github.com/magenxcommerce/module-graph-ql-app-server"
+      args:
+        FRANKENPHP_IMAGE:
+        FRANKENPHP_RUNTIME_IMAGE:
+        FRANKENPHP_EXTENSION:
+        PIE_IMAGE:
+        PIE_MODULES:
+        BUSYBOX_IMAGE:
+        MAGENTO_ROOT_PATH:
+        CURRENT_SYMLINK:
+        DHI_STACK_UID:
+        TIMEZONE:
+    environment:
+      # Read by app/etc/env.php through getenv(), exactly as in the php service.
+      MARIADB_DATABASE:
+      MARIADB_USER:
+      MARIADB_PASSWORD:
+      RABBITMQ_PASSWORD:
+      VALKEY_PASSWORD:
+      OPENSEARCH_PASSWORD:
+      BRAND:
+      DOMAIN:
+      ADMIN_PATH:
+      CRYPT_KEY:
+      GRAPHQL_ID_SALT:
+      # Read by the Caddyfile.
+      MAGENTO_ROOT_PATH:
+      CURRENT_SYMLINK:
+      FRANKENPHP_PORT:
+      GRAPHQL_WORKERS:
+      GRAPHQL_MAX_THREADS:
+      GRAPHQL_WORKER_FILE:
+      MAGENX_WORKER_MAX_REQUESTS:
+      MAGENX_WORKER_MAX_MEMORY_MB:
+      MAGENX_WORKER_MAX_AGE:
+      MAGENX_WORKER_ALLOWED_FIELDS:
+      # nginx is the only client of the worker port: take the client IP from X-Real-IP.
+      MAGENX_WORKER_TRUST_X_REAL_IP: "1"
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    expose:
+      - "${FRANKENPHP_PORT}"
+    networks:
+      - backend
+      - frontend
+    volumes:
+      - ${MAGENTO_ROOT_PATH}/public:${MAGENTO_ROOT_PATH}/public:ro
+      - ${MAGENTO_ROOT_PATH}/releases:${MAGENTO_ROOT_PATH}/releases:ro
+      - ${MAGENTO_ROOT_PATH}/shared/var:${MAGENTO_ROOT_PATH}/shared/var
+      - ${MAGENTO_ROOT_PATH}/shared/pub/media:${MAGENTO_ROOT_PATH}/shared/pub/media:ro
+    tmpfs:
+      # Caddy autosave config and data; nothing here needs to persist.
+      - /config:uid=${DHI_STACK_UID},gid=${DHI_STACK_UID},mode=0700,size=16m
+      - /data:uid=${DHI_STACK_UID},gid=${DHI_STACK_UID},mode=0700,size=16m
+      - /tmp:uid=${DHI_STACK_UID},gid=${DHI_STACK_UID},mode=1770,size=64m
+    working_dir: "${MAGENTO_ROOT_PATH}/${CURRENT_SYMLINK}"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    mem_limit: ${FRANKENPHP_MEM_LIMIT}
+    healthcheck:
+      # A real anonymous GraphQL read through the worker: proves Magento booted, not just Caddy.
+      test: ["CMD", "/bin/busybox", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:${FRANKENPHP_PORT}/graphql?query=%7BstoreConfig%7Bstore_code%7D%7D"]
+      start_period: ${HEALTHCHECK_START_PERIOD}
+      interval: ${HEALTHCHECK_INTERVAL}
+      timeout: ${HEALTHCHECK_TIMEOUT}
+      retries: ${HEALTHCHECK_RETRIES}
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    logging:
+      driver: syslog
+      options:
+        syslog-address: "unixgram:///dev/log"
+        mode: non-blocking
+        tag: "[ {{.Name}} ]"

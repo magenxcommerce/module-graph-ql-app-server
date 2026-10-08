@@ -1,0 +1,51 @@
+<?xml version="1.0"?>
+<ruleset name="Magenx_AppServer">
+    <description>Magento 2 coding standard for Magenx_AppServer.</description>
+
+    <arg name="extensions" value="php,phtml,xml,js"/>
+    <arg name="severity" value="8"/>
+    <arg name="colors"/>
+    <arg value="sp"/>
+
+    <!--
+        Scan the whole module rather than naming directories, so this file is
+        identical across every magenxcommerce/module-* repo. PSR-4 maps the
+        module namespace to the repo root, so the excludes below are what keeps
+        tooling and dependencies out.
+    -->
+    <file>.</file>
+
+    <exclude-pattern>*/vendor/*</exclude-pattern>
+    <exclude-pattern>*/.git/*</exclude-pattern>
+    <exclude-pattern>*/.github/*</exclude-pattern>
+
+    <rule ref="Magento2"/>
+
+    <!--
+        This module is a PHP entry point, not code that runs inside Magento's
+        HTTP stack. bin/ holds the FrankenPHP worker script and a CLI check
+        that run before the framework exists; Worker/ turns the request that
+        FrankenPHP puts in the superglobals into Magento's request, writes its
+        own refusal responses and reads the worker environment. The rules
+        below forbid exactly that, so they are lifted for those paths only.
+    -->
+    <rule ref="Magento2.Security.Superglobal">
+        <exclude-pattern>*/bin/*</exclude-pattern>
+        <exclude-pattern>*/Worker/*</exclude-pattern>
+    </rule>
+    <rule ref="Magento2.Functions.DiscouragedFunction">
+        <exclude-pattern>*/bin/*</exclude-pattern>
+        <exclude-pattern>*/Worker/*</exclude-pattern>
+    </rule>
+    <rule ref="Magento2.Security.LanguageConstruct">
+        <exclude-pattern>*/bin/*</exclude-pattern>
+        <exclude-pattern>*/Worker/*</exclude-pattern>
+    </rule>
+    <rule ref="Magento2.Security.IncludeFile">
+        <exclude-pattern>*/bin/*</exclude-pattern>
+    </rule>
+    <!-- Limits/ReadOnlyScope::fromEnvironment() are built by bin/graphql-worker.php, not by DI. -->
+    <rule ref="Magento2.Functions.StaticFunction">
+        <exclude-pattern>*/Worker/*</exclude-pattern>
+    </rule>
+</ruleset>
