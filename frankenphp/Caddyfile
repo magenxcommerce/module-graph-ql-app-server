@@ -13,7 +13,8 @@
 	auto_https off
 	skip_install_trust
 	# Prometheus metrics: busy workers, frankenphp_worker_queue_depth (requests
-	# waiting for a free worker), request times. Served on the metrics site
+	# waiting for a free worker), request times, and (FrankenPHP 1.13+, PHP 8.4+)
+	# frankenphp_opcache_restarts, which must stay 0. Served on the metrics site
 	# below and on the loopback admin port (/metrics).
 	metrics
 
@@ -51,6 +52,15 @@
 	handle /graphql {
 		root * {$MAGENTO_ROOT_PATH}/{$CURRENT_SYMLINK}/pub
 
+		# Hard cap; the worker itself refuses bodies over MAGENX_WORKER_MAX_BODY_KB
+		# with 503, so nginx replays them on php-fpm.
+		request_body {
+			max_size 2MB
+		}
+		# The worker serves anonymous reads only: no cookie may reach PHP, so no
+		# PHP session can be resumed inside a long-lived thread.
+		request_header -Cookie
+
 		php_server {
 			worker {
 				name graphql
@@ -62,7 +72,7 @@
 				env MAGE_MODE production
 				env MAGENX_WORKER_MAX_REQUESTS {$MAGENX_WORKER_MAX_REQUESTS:500}
 				env MAGENX_WORKER_MAX_MEMORY_MB {$MAGENX_WORKER_MAX_MEMORY_MB:512}
-				env MAGENX_WORKER_MAX_AGE {$MAGENX_WORKER_MAX_AGE:300}
+				env MAGENX_WORKER_MAX_AGE {$MAGENX_WORKER_MAX_AGE:1800}
 			}
 		}
 	}

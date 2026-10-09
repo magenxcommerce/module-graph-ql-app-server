@@ -37,15 +37,21 @@ Per request:
    never replaced, because many singletons captured it when they were built.
    This also clears request properties that core `_resetState()` misses in
    2.4.8 (`originalPathInfo`, `isSafeMethod`, `route`, ...).
+   Cookies are dropped (`$_COOKIE`, `HTTP_COOKIE`; Caddy also strips the
+   header): anonymous reads need none, and a session cookie must never
+   resume a PHP session inside a long-lived thread.
 2. **Scope check.** Anything but an anonymous, read-only, allowlisted query
    gets 503 before Magento runs, and nginx replays it on PHP-FPM (see
-   Rollout).
+   Rollout). The query is parsed with the core `QueryParser`, which Magento
+   then reuses, so each query is parsed once.
 3. **Maintenance check.** Answers 503 while `var/.maintenance.flag` exists.
 4. **Dispatch** through the `graphql` front controller, so its plugins
    (store header, cache tags, ...) run as usual. Then fire
    `controller_front_send_response_before` and send.
 5. **Clean up, after the response is sent.** Roll back any DB transaction
-   left open, then run `Resetter::_resetState()` on every tracked object.
+   left open, abort any PHP session a request started, then run
+   `Resetter::_resetState()` on every tracked object. The core
+   `QueryParser` cache is emptied above 1000 parsed queries.
    This runs once `frankenphp_handle_request()` has returned. FrankenPHP
    holds the whole response until the handler returns, so cleanup inside
    the handler would add the reset and its `gc_collect_cycles()` calls to
@@ -56,24 +62,31 @@ Per request:
    - a transaction was left open,
    - `MAGENX_WORKER_MAX_REQUESTS` (default 500) reached,
    - memory reached `MAGENX_WORKER_MAX_MEMORY_MB` (default 512),
-   - the worker is older than `MAGENX_WORKER_MAX_AGE` seconds (default 300),
-   - `app/etc/env.php` changed.
+   - the worker is older than `MAGENX_WORKER_MAX_AGE` seconds (default 1800),
+   - `app/etc/env.php` changed,
+   - the config cache was rebuilt or flushed (admin config save,
+     `cache:clean config`, `cache:flush`): checked at most once a second by
+     reading core's `system_scopes` config cache entry, which System config
+     re-encrypts with a fresh nonce on every rebuild.
+
+   Request and age limits get +-20% jitter per worker, so workers that
+   booted together do not all recycle and reboot at the same moment.
 
    Each boot and each exit is logged to Magento's `var/log/system.log`
    (`notice`), so restarts counted by `frankenphp_worker_restarts` can be
    told apart:
 
    ```text
-   magenx-app-server: worker 1/9f3c2a1b booted in 612 ms, memory 38.2 MB (peak 40.1 MB)
-   magenx-app-server: worker 1/9f3c2a1b recycling (max-age) after 87/500 requests, 300/300 s, memory 61.4 MB (peak 80.3 MB) (limit 512 MB)
-   magenx-app-server: worker 1/4d07e6c5 stopped by FrankenPHP (idle 62 s) after 12/500 requests, 140/300 s, memory 52.0 MB (peak 70.9 MB) (limit 512 MB)
+   magenx-app-server: worker 1/9f3c2a1b booted in 612 ms, memory 38.2 MB (peak 40.1 MB), opcache 41210 scripts (130987 max), 301/512 MB, interned 38/64 MB, hit 99.2%, restarts oom 0 hash 0
+   magenx-app-server: worker 1/9f3c2a1b recycling (max-age) after 87/463 requests, 1712/1712 s, memory 61.4 MB (peak 80.3 MB) (limit 512 MB), opcache ...
+   magenx-app-server: worker 1/4d07e6c5 stopped by FrankenPHP (idle 62 s) after 12/541 requests, 140/1930 s, memory 52.0 MB (peak 70.9 MB) (limit 512 MB), opcache ...
    ```
 
    `worker <pid>/<id>`: all worker threads share the FrankenPHP pid (1 in
    the container), the random id pairs a boot with its exit.
 
    Reasons: `error`, `open-transaction`, `reset-failed`, `max-requests`,
-   `max-memory`, `max-age`, `env-changed`. `stopped by FrankenPHP` means
+   `max-memory`, `max-age`, `env-changed`, `config-changed`. `stopped by FrankenPHP` means
    FrankenPHP stopped the thread between requests; it does not tell PHP why:
    - idle about `GRAPHQL_MAX_IDLE_TIME` or more: autoscale downscale. With
      `GRAPHQL_MAX_THREADS` above `GRAPHQL_WORKERS`, FrankenPHP adds a worker
@@ -219,6 +232,10 @@ Default allowlist (`ReadOnlyScope::DEFAULT_ROOT_FIELDS`):
 Override it with `MAGENX_WORKER_ALLOWED_FIELDS` (comma separated). Add a
 field only after checking that its resolvers keep no per-customer state.
 
+Bodies over `MAGENX_WORKER_MAX_BODY_KB` (default 512) are refused before
+they are decoded or parsed, and replayed on PHP-FPM. Caddy rejects anything
+over 2 MB outright.
+
 Add `$upstream_addr` and `$graphql_backend` to the `graphql_timing` log
 format to compare latency between backends and see how often requests are
 replayed.
@@ -257,10 +274,52 @@ Workers hold system config, store config and DI config in memory.
   docker compose exec php php -r 'echo file_get_contents("http://frankenphp:2020/metrics");' | grep frankenphp_
   ```
 
-- **Admin config save or `cache:flush`:** workers see the change after at
-  most `MAGENX_WORKER_MAX_AGE` seconds, or right away after the restart
-  call above.
+- **Admin config save, `cache:clean config` or `cache:flush`:** each worker
+  recycles after its next request (checked at most once a second). With the
+  `config` cache type disabled there is nothing to watch: workers then see
+  the change after at most `MAGENX_WORKER_MAX_AGE` seconds, or right away
+  after the restart call above. Other admin edits held in memory (anything
+  not in the config cache) are bounded by `MAGENX_WORKER_MAX_AGE`.
 - **`env.php` change:** each worker recycles after its next request.
+
+## Checking worker mode and opcache
+
+Worker mode: `frankenphp_total_workers` counts booted worker threads, and every
+boot logs a `booted in N ms` line with its own id.
+
+```bash
+docker compose exec frankenphp /bin/busybox wget -qO- http://127.0.0.1:2020/metrics \
+  | grep -E 'frankenphp_(total_workers|busy_workers|ready_workers|worker_restarts|opcache_restarts)'
+grep 'magenx-app-server: worker' var/log/system.log | tail
+```
+
+Two `booted` lines minutes apart for the same thread, with no recycle in
+between, mean FrankenPHP is not keeping the worker (check the container log).
+
+Opcache: all worker threads share one opcache. Every boot and exit line ends
+with its fill (`opcache N scripts (max), used/total MB, interned, hit rate,
+restarts`). It should rise over the first boots and then stay flat, with
+the hit rate near 100% and no restarts. `FULL` at the end of the line, or a
+rising `frankenphp_opcache_restarts` (FrankenPHP 1.13+, PHP 8.4+), means
+`opcache.memory_consumption`, `opcache.interned_strings_buffer` or
+`opcache.max_accelerated_files` in `zz-worker.ini` is too small, and every
+boot then recompiles. `opcache off` means the extension is not loaded:
+check `FRANKENPHP_EXTENSION` contains `opcache`.
+
+At boot each worker runs `MAGENX_WORKER_WARMUP_QUERY` (default
+`{storeConfig{store_code}}`, `off` to skip) once through the front
+controller, so the first real request does not pay for autoloading, config
+and schema loading. The response is discarded and state is reset after it.
+
+GraphQL sessions: core default `graphql/session/disable=0` lets GraphQL
+start PHP sessions. The worker drops cookies and aborts any session a
+request opens, but turn sessions off anyway (the storefront uses tokens):
+
+```bash
+bin/magento config:set graphql/session/disable 1
+```
+
+A worker logs a warning at boot while it is on.
 
 ## Verification gate (before any real traffic)
 

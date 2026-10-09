@@ -5,8 +5,9 @@
     "license": "MIT",
     "require": {
         "php": "~8.3.0||~8.4.0||~8.5.0",
-        "magento/framework": ">=103.0.8",
-        "magento/module-graph-ql": "*"
+        "magento/framework": ">=103.0.8 <104",
+        "magento/module-graph-ql": "*",
+        "webonyx/graphql-php": "^15.0"
     },
     "autoload": {
         "files": [

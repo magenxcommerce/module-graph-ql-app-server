@@ -6,8 +6,8 @@ namespace Magenx\AppServer\Worker;
 
 use GraphQL\Language\AST\FieldNode;
 use GraphQL\Language\AST\OperationDefinitionNode;
-use GraphQL\Language\Parser;
 use Magento\Framework\App\Request\Http as HttpRequest;
+use Magento\Framework\GraphQl\Query\QueryParser;
 
 /**
  * Which requests the worker may serve: anonymous, read-only, allowlisted.
@@ -20,6 +20,8 @@ use Magento\Framework\App\Request\Http as HttpRequest;
  *
  * A request is in scope only when all of these hold:
  *  - no Authorization header (no customer or integration token);
+ *  - the body is at most MAGENX_WORKER_MAX_BODY_KB (default 512), checked
+ *    before anything is decoded or parsed;
  *  - the body parses, and every operation in it is a `query`;
  *  - every root field is on the allowlist (`__typename` aside), and the root
  *    selection uses no fragments, which could hide other fields.
@@ -43,26 +45,36 @@ class ReadOnlyScope
 
     /**
      * @param string[] $allowedRootFields
+     * @param int $maxBodyBytes 0 = no limit
      */
-    public function __construct(array $allowedRootFields)
+    public function __construct(array $allowedRootFields, private readonly int $maxBodyBytes = 512 * 1024)
     {
         $this->allowed = array_fill_keys($allowedRootFields, true);
     }
 
     /**
-     * MAGENX_WORKER_ALLOWED_FIELDS (comma separated) replaces the default list.
+     * MAGENX_WORKER_ALLOWED_FIELDS (comma separated) replaces the default list;
+     * MAGENX_WORKER_MAX_BODY_KB caps the request body (0 = no limit).
      *
      * Call before the first request, while $_SERVER is the worker environment.
      */
     public static function fromEnvironment(): self
     {
-        $configured = (string) ($_SERVER['MAGENX_WORKER_ALLOWED_FIELDS'] ?? getenv('MAGENX_WORKER_ALLOWED_FIELDS') ?: '');
-        $fields = array_values(array_filter(array_map('trim', explode(',', $configured))));
+        $env = static fn (string $name): string => (string) ($_SERVER[$name] ?? getenv($name) ?: '');
+        $fields = array_values(array_filter(array_map('trim', explode(',', $env('MAGENX_WORKER_ALLOWED_FIELDS')))));
+        $maxBodyKb = $env('MAGENX_WORKER_MAX_BODY_KB');
 
-        return new self($fields !== [] ? $fields : self::DEFAULT_ROOT_FIELDS);
+        return new self(
+            $fields !== [] ? $fields : self::DEFAULT_ROOT_FIELDS,
+            is_numeric($maxBodyKb) ? max(0, (int) $maxBodyKb) * 1024 : 512 * 1024
+        );
     }
 
-    public function allows(HttpRequest $request): bool
+    /**
+     * @param QueryParser $parser the core parser: Magento reuses its parsed
+     *                            document, so each query is parsed once.
+     */
+    public function allows(HttpRequest $request, QueryParser $parser): bool
     {
         if ((string) $request->getHeader('Authorization') !== '') {
             return false;
@@ -74,7 +86,7 @@ class ReadOnlyScope
         }
 
         try {
-            $document = Parser::parse($query, ['noLocation' => true]);
+            $document = $parser->parse($query);
         } catch (\Throwable) {
             return false;
         }
@@ -111,8 +123,16 @@ class ReadOnlyScope
         if (!$request->isPost()) {
             return null;
         }
+        $limit = $this->maxBodyBytes;
+        if ($limit > 0 && (int) $request->getServer('CONTENT_LENGTH') > $limit) {
+            return null;
+        }
+        $content = (string) $request->getContent();
+        if ($limit > 0 && strlen($content) > $limit) {
+            return null; // Chunked body without Content-Length.
+        }
         try {
-            $body = json_decode((string) $request->getContent(), true, 512, JSON_THROW_ON_ERROR);
+            $body = json_decode($content, true, 512, JSON_THROW_ON_ERROR);
         } catch (\JsonException) {
             return null;
         }

@@ -45,12 +45,17 @@ $objectManagerFactory = new ObjectManagerFactory(
 );
 $bootstrap = Bootstrap::create(BP, $initParams, $objectManagerFactory);
 
+// Query run once at boot so request #1 starts warm; "off" disables it.
+$warmupQuery = trim((string) ($_SERVER['MAGENX_WORKER_WARMUP_QUERY'] ?? getenv('MAGENX_WORKER_WARMUP_QUERY') ?: ''))
+    ?: '{storeConfig{store_code}}';
+
 $worker = new GraphQlWorker(
     $bootstrap->getObjectManager(),
     $objectManagerFactory->getResetter(),
     Limits::fromEnvironment(),
     ReadOnlyScope::fromEnvironment(),
-    BP . '/app/etc/env.php'
+    BP . '/app/etc/env.php',
+    $warmupQuery === 'off' ? '' : $warmupQuery
 );
 $worker->boot($startedAt);
 
