@@ -44,6 +44,7 @@ services:
       MAGENTO_ROOT_PATH:
       CURRENT_SYMLINK:
       FRANKENPHP_PORT:
+      FRANKENPHP_METRICS_PORT:
       GRAPHQL_WORKERS:
       GRAPHQL_MAX_THREADS:
       GRAPHQL_MAX_IDLE_TIME:
@@ -59,6 +60,8 @@ services:
         condition: service_healthy
     expose:
       - "${FRANKENPHP_PORT}"
+      # Read-only /metrics for the php container. No host port: other containers only.
+      - "${FRANKENPHP_METRICS_PORT:-2020}"
     networks:
       - backend
       - frontend

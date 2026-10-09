@@ -144,6 +144,11 @@ What the image does:
   and `/tmp`. The image strips FrankenPHP's `cap_net_bind_service` file
   capability: with `cap_drop: ALL`, exec would fail with "operation not
   permitted". The worker listens on unprivileged 8081.
+- **Ports:** 8081 (worker, for nginx) and 2020 (read-only `/metrics`, for
+  other containers) are `expose`d to the docker networks only, with no host
+  port. The Caddy admin API, which can rewrite the whole config and restart
+  workers, binds to `127.0.0.1:2019` inside the container and is never
+  exposed.
 - **Mounts:** the same code mounts as the php service, read-only.
   `shared/var` is writable for logs and tmp.
 - **Environment:** the same env as php, because `app/etc/env.php` reads its
@@ -233,7 +238,10 @@ Workers hold system config, store config and DI config in memory.
   docker compose exec frankenphp /bin/busybox wget -q -O - --post-data '' http://127.0.0.1:2019/frankenphp/workers/restart
   ```
 
-- **Load:** the admin API also serves Prometheus metrics. A
+- **Load:** Prometheus metrics are served read-only on
+  `http://frankenphp:${FRANKENPHP_METRICS_PORT:-2020}/metrics` to the other
+  containers (point the Magento platform module there), and on the loopback
+  admin API. Every other path on the metrics port returns 404. A
   `frankenphp_worker_queue_depth` above 0 means requests are waiting for a
   free worker; raise `GRAPHQL_WORKERS` (and `GRAPHQL_MAX_THREADS`) if it
   stays there. Frequent `upscaling worker thread` / `downscaling thread`
@@ -243,8 +251,10 @@ Workers hold system config, store config and DI config in memory.
   `FRANKENPHP_MEM_LIMIT` for that.
 
   ```bash
-  docker compose exec frankenphp /bin/busybox wget -qO- http://127.0.0.1:2019/metrics \
+  docker compose exec frankenphp /bin/busybox wget -qO- http://127.0.0.1:2020/metrics \
     | grep -E 'frankenphp_(worker_queue_depth|busy_workers|total_workers)'
+  # from the php container, as the platform module does:
+  docker compose exec php php -r 'echo file_get_contents("http://frankenphp:2020/metrics");' | grep frankenphp_
   ```
 
 - **Admin config save or `cache:flush`:** workers see the change after at
