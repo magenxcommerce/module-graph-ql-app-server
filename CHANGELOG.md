@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.3](https://github.com/magenxcommerce/module-graph-ql-app-server/compare/v1.0.2...v1.0.3) (2026-10-09)
+
+
+### Bug Fixes
+
+* Expose read-only Prometheus metrics on separate port ([#7](https://github.com/magenxcommerce/module-graph-ql-app-server/issues/7)) ([bcd8ddd](https://github.com/magenxcommerce/module-graph-ql-app-server/commit/bcd8ddd1972fabaae1f68ab33c948ab0a3d0ce4a))
+* serve Prometheus metrics on a separate read-only port ([bcd8ddd](https://github.com/magenxcommerce/module-graph-ql-app-server/commit/bcd8ddd1972fabaae1f68ab33c948ab0a3d0ce4a))
+
 ## [1.0.2](https://github.com/magenxcommerce/module-graph-ql-app-server/compare/v1.0.1...v1.0.2) (2026-10-08)
 
 
