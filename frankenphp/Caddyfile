@@ -4,14 +4,17 @@
 # see nginx/conf_m2/graphql_worker.conf.template. Paths come from the stack's .env:
 # MAGENTO_ROOT_PATH + CURRENT_SYMLINK is the current release.
 {
-	# Loopback only: restart workers and read /metrics from inside the container.
+	# Loopback only: restart workers from inside the container. Never expose it:
+	# the admin API can rewrite the whole config. Other containers read metrics
+	# from the separate metrics site below instead.
 	# An IPv4 literal, not `localhost`: Caddy binds that to 127.0.0.1 alone,
 	# while busybox wget may resolve it to ::1 first and get refused.
 	admin 127.0.0.1:2019
 	auto_https off
 	skip_install_trust
-	# Prometheus metrics on the loopback admin port (/metrics): busy workers,
-	# frankenphp_worker_queue_depth (requests waiting for a free worker), request times.
+	# Prometheus metrics: busy workers, frankenphp_worker_queue_depth (requests
+	# waiting for a free worker), request times. Served on the metrics site
+	# below and on the loopback admin port (/metrics).
 	metrics
 
 	# nginx is the only client: Caddy logs show the real client IP. PHP gets it
@@ -62,6 +65,19 @@
 				env MAGENX_WORKER_MAX_AGE {$MAGENX_WORKER_MAX_AGE:300}
 			}
 		}
+	}
+
+	handle {
+		respond 404
+	}
+}
+
+# Read-only Prometheus metrics for other containers (the Magento platform module
+# in the php container): GET http://frankenphp:2020/metrics. A site of its own,
+# not the admin API, so they reach /metrics and nothing else.
+:{$FRANKENPHP_METRICS_PORT:2020} {
+	handle /metrics {
+		metrics
 	}
 
 	handle {
