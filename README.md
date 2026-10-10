@@ -400,7 +400,10 @@ you run may be skipped. `phpunit.xml.dist` in this module only runs
 CI runs all of this in `.github/workflows/graphql-state.yml`, started by
 hand (Actions → GraphQL state → Run workflow): a fresh Mage-OS install on
 PHP 8.4 ZTS (the FrankenPHP build), MariaDB and OpenSearch services, then the companion and
-core state suites. Everything is installed with composer, as a store does:
+core state suites. The comparator keeps every test's object graph until PHP
+exits (about 200 MB a test), so each suite runs in several PHPUnit processes
+capped at 4G: the companion cases split with `MAGENX_STATE_SLICE=k/n`
+(see `CompanionCases::provide()`), the core suite one test class per process. Everything is installed with composer, as a store does:
 this module from the branch it runs on, every `magenxcommerce/module-*` package
 (from Packagist once published, from its GitHub repository until then), and
 Stripe (`stripe/stripe-payments`) from the Magento Marketplace. It uses the

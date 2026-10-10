@@ -1052,14 +1052,33 @@ class CompanionCases
         return $all;
     }
 
+    /** Environment variable "k/n": run only every n-th case, from the k-th. */
+    public const SLICE_ENV = 'MAGENX_STATE_SLICE';
+
     /**
-     * Data provider shape: [name => [case]].
+     * Data provider shape: [name => [case]], cut to this process's slice.
+     *
+     * The state comparator keeps every test's object graph until the PHP
+     * process ends (core GraphQlStateTest does the same), about 200 MB a
+     * case, so CI splits the cases over several processes with SLICE_ENV.
+     * Without it every case runs.
      *
      * @param array<string, array<string, mixed>> $cases
      * @return array<string, array{0: array<string, mixed>}>
      */
     public static function provide(array $cases): array
     {
+        // phpcs:ignore Magento2.Functions.DiscouragedFunction -- CI process setting, read before Magento runs
+        $slice = (string) getenv(self::SLICE_ENV);
+        if (preg_match('#^(\d+)/(\d+)$#', $slice, $match) && $match[1] >= 1 && $match[1] <= $match[2]) {
+            $position = 0;
+            $cases = array_filter(
+                $cases,
+                static function () use (&$position, $match): bool {
+                    return $position++ % (int) $match[2] === (int) $match[1] - 1;
+                }
+            );
+        }
         return array_map(static fn (array $case): array => [$case], $cases);
     }
 

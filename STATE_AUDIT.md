@@ -192,7 +192,10 @@ The companion and core state tests then flagged more of Stripe's
   total code only in the constructor, so core `AbstractTotal::_resetState()`
   leaves them without one (same as #1). `reset.json` cannot help: the
   Resetter skips it for classes with their own `_resetState()`. Mitigated
-  by `RestoreTotalCodes`, above.
+  by `RestoreTotalCodes`, above. `InitialFee` also reads the subscriptions
+  setting once per process (`$isSubscriptionsEnabled`), for the first
+  store it sees. That is still open; the state tests filter it until it
+  is reset.
 
 The same runs flagged core order loading, which also keeps state:
 `Sales\Model\Order\ShippingAssignmentBuilder::$orderId` and

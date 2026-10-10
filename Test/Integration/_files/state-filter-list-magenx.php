@@ -11,6 +11,10 @@
  *   plugin, so Plugin\Quote\RestoreTotalCodes puts it back from the collector
  *   on the next use instead. The comparator looks between requests, when the
  *   code is still empty.
+ * - Stripe InitialFee's lazily built helper, and its subscriptions setting,
+ *   read once per process. Both are totals' private state that reset.json
+ *   cannot reach (the class has its own _resetState()); the setting is
+ *   stale until the worker recycles (STATE_AUDIT.md).
  *
  * Classes that are not installed never match. No Magenx\ class belongs here
  * (CompanionSchemaCoverageTest fails on one): fix those with _resetState() or
@@ -23,7 +27,11 @@ declare(strict_types=1);
 return [
     'parents' => [
         'Magento\Framework\Model\ResourceModel\Db\AbstractDb' => ['_uniqueFields' => null],
-        'StripeIntegration\Payments\Model\InitialFee' => ['_code' => null],
+        'StripeIntegration\Payments\Model\InitialFee' => [
+            '_code' => null,
+            'initialFeeHelper' => null,
+            'isSubscriptionsEnabled' => null,
+        ],
         'StripeIntegration\Tax\Model\Quote\Total\StripeFlatFees' => ['_code' => null],
     ],
 ];

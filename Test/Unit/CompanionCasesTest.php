@@ -175,4 +175,32 @@ class CompanionCasesTest extends TestCase
             $this->assertArrayHasKey($case['module'], $crossed, "$name: its module has no cross-account pair.");
         }
     }
+
+    /**
+     * CI splits the state tests over processes with SLICE_ENV: together the
+     * slices must run every case exactly once.
+     */
+    public function testSlicesRunEveryCaseOnce(): void
+    {
+        $slices = [];
+        try {
+            foreach ([1, 2, 3] as $slice) {
+                // phpcs:ignore Magento2.Functions.DiscouragedFunction -- the setting under test
+                putenv(CompanionCases::SLICE_ENV . "=$slice/3");
+                $slices[] = array_keys(CompanionCases::provide(CompanionCases::catalog()));
+            }
+        } finally {
+            // phpcs:ignore Magento2.Functions.DiscouragedFunction -- restore the environment
+            putenv(CompanionCases::SLICE_ENV);
+        }
+
+        $all = array_keys(CompanionCases::catalog());
+        $merged = array_merge(...$slices);
+        sort($merged);
+        sort($all);
+        $this->assertSame($all, $merged);
+        foreach ($slices as $slice) {
+            $this->assertNotEmpty($slice);
+        }
+    }
 }
