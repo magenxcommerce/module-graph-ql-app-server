@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.2](https://github.com/magenxcommerce/module-graph-ql-app-server/compare/v1.1.1...v1.1.2) (2026-10-10)
+
+
+### Bug Fixes
+
+* Fix quote total codes and shared object state in worker requests ([#14](https://github.com/magenxcommerce/module-graph-ql-app-server/issues/14)) ([b822521](https://github.com/magenxcommerce/module-graph-ql-app-server/commit/b822521f285449c6187f96547192de3188b3fce5))
+* make the GraphQL state tests see their fixtures and reset Stripe and order state ([b822521](https://github.com/magenxcommerce/module-graph-ql-app-server/commit/b822521f285449c6187f96547192de3188b3fce5))
+
 ## [1.1.1](https://github.com/magenxcommerce/module-graph-ql-app-server/compare/v1.1.0...v1.1.1) (2026-10-10)
 
 
