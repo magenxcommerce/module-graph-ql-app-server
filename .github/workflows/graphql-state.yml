@@ -217,8 +217,9 @@ jobs:
             file_put_contents("phpunit.xml", $xml);
           '
           php -r 'exit(simplexml_load_file("phpunit.xml") === false ? 1 : 0);'
-          # Mage-OS-only components the core state lists do not know about.
-          cp ../../../vendor/magenxcommerce/module-graph-ql-app-server/Test/Integration/_files/state-filter-list-mageos.php \
+          # Filter lists the core comparator does not ship: Mage-OS-only
+          # components, and properties of this stack that carry no request state.
+          cp ../../../vendor/magenxcommerce/module-graph-ql-app-server/Test/Integration/_files/state-filter-list-*.php \
             framework/Magento/TestFramework/ApplicationStateComparator/_files/
 
       - name: Companion state tests
@@ -238,6 +239,13 @@ jobs:
           php ../../../vendor/bin/phpunit -c phpunit.xml
           --testsuite "Core GraphQl state"
           --log-junit "$RUNNER_TEMP/core-state.xml"
+
+      # etc/reset.json against the installed Stripe and core: a renamed
+      # property or changed default would make an entry silently wrong.
+      - name: Check reset.json entries
+        if: ${{ !cancelled() }}
+        working-directory: ${{ env.MAGENTO_ROOT }}
+        run: php vendor/magenxcommerce/module-graph-ql-app-server/bin/check-reset-json.php
 
       - name: Upload results
         if: ${{ !cancelled() }}

@@ -26,21 +26,7 @@ class CompanionCustomerStateTest extends CompanionStateTestCase
     /**
      * @magentoDataFixture Magento/Sales/_files/order_with_customer.php
      * @magentoDataFixture Magenx_AppServer::Test/Integration/_files/second_customer.php
-     * @magentoConfigFixture base_website magenx_reward/general/enabled 1
-     * @magentoConfigFixture base_website magenx_reward/redemption/rate 0.01
-     * @magentoConfigFixture default_store magenx_helpdesk/general/enabled 1
-     * @magentoConfigFixture default_store magenx_helpdesk/customer_account/enabled 1
-     * @magentoConfigFixture default_store magenx_helpdesk/guest/enabled 1
-     * @magentoConfigFixture default_store rma/general/enabled 1
-     * @magentoConfigFixture default_store rma/policy/allowed_order_statuses processing,complete
-     * @magentoConfigFixture default_store rma/withdrawal/enabled 1
-     * @magentoConfigFixture default_store catalog/productalert/allow_price 1
-     * @magentoConfigFixture default_store catalog/productalert/allow_stock 1
-     * @magentoConfigFixture default_store magenx_price_history/general/enabled 1
-     * @magentoConfigFixture default_store magenx_garan/general/enabled 1
-     * @magentoConfigFixture default_store magenx_garan/garan/enabled 1
-     * @magentoConfigFixture default_store carriers/magenx_storepickup/active 1
-     * @magentoConfigFixture default_store carriers/magenx_storepickup/locations {"s":{"code":"STATE-PICKUP","name":"Pickup","city":"Testville"}}
+     * @magentoDataFixture Magenx_AppServer::Test/Integration/_files/companion_config.php
      * @param array<string, mixed> $case
      */
     #[DataProvider('customerCases')]
@@ -52,17 +38,7 @@ class CompanionCustomerStateTest extends CompanionStateTestCase
     /**
      * @magentoDataFixture Magento/Sales/_files/order_with_customer.php
      * @magentoDataFixture Magenx_AppServer::Test/Integration/_files/second_customer.php
-     * @magentoConfigFixture base_website magenx_reward/general/enabled 1
-     * @magentoConfigFixture base_website magenx_reward/redemption/rate 0.01
-     * @magentoConfigFixture default_store magenx_helpdesk/general/enabled 1
-     * @magentoConfigFixture default_store magenx_helpdesk/customer_account/enabled 1
-     * @magentoConfigFixture default_store magenx_helpdesk/guest/enabled 1
-     * @magentoConfigFixture default_store rma/general/enabled 1
-     * @magentoConfigFixture default_store rma/policy/allowed_order_statuses processing,complete
-     * @magentoConfigFixture default_store rma/withdrawal/enabled 1
-     * @magentoConfigFixture default_store catalog/productalert/allow_price 1
-     * @magentoConfigFixture default_store catalog/productalert/allow_stock 1
-     * @magentoConfigFixture default_store magenx_social_login/general/shared_secret state-test-secret
+     * @magentoDataFixture Magenx_AppServer::Test/Integration/_files/companion_config.php
      * @param array<string, mixed> $case
      */
     #[DataProvider('mutationCases')]

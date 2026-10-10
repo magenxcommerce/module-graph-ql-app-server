@@ -28,6 +28,7 @@ This module supplies that piece and the request loop.
 | `ObjectManager/EnvironmentFactory.php`, `Environment/Compiled.php` | Compiled DI environment with the reset-tracking factory; refuses to boot without `setup:di:compile` output |
 | `ObjectManager/Factory/Compiled.php` | Subclass of the core `Compiled` factory that registers every created object with the core `Resetter` |
 | `bin/check-reset-json.php` | Checks `etc/reset.json` against the installed classes (property exists, default matches, not set in the constructor) |
+| `Plugin/Quote/RestoreTotalCodes.php` | `graphql`-area plugin that gives quote totals back the code core `AbstractTotal::_resetState()` clears; `_resetState()` itself cannot take a plugin |
 | `frankenphp/` | Worker image and wiring for [magenx/Magento-2-docker-configuration](https://github.com/magenx/Magento-2-docker-configuration): `Dockerfile`, `Caddyfile`, `zz-worker.ini`, compose override, nginx templates, `.env` block, `install.sh` |
 
 Per request:
@@ -378,10 +379,19 @@ cd dev/tests/integration
 ../../../vendor/bin/phpunit -c phpunit.xml --testsuite "Magenx companion state"
 ```
 
-On Mage-OS, also copy `Test/Integration/_files/state-filter-list-mageos.php`
-into `dev/tests/integration/framework/Magento/TestFramework/ApplicationStateComparator/_files/`:
-it filters the plugin references Mage-OS's compiled interceptors cache and
-its Ignition error handler, which the core lists do not know about.
+Copy `Test/Integration/_files/state-filter-list-magenx.php` into
+`dev/tests/integration/framework/Magento/TestFramework/ApplicationStateComparator/_files/`:
+it filters what carries no request state, `AbstractDb::$_uniqueFields` and the
+total codes that `RestoreTotalCodes` puts back. On Mage-OS, also copy
+`state-filter-list-mageos.php` there: it filters the plugin references
+Mage-OS's compiled interceptors cache and its Ignition error handler, which
+the core lists do not know about.
+
+The settings the cases need are in `CompanionCases::CONFIG`, written to
+`core_config_data` by `_files/companion_config.php`. Do not use
+`@magentoConfigFixture` in these tests: it sets values on the test
+framework's own config object, and the requests run in a fresh object
+manager that never sees them.
 
 Cases of a disabled module are skipped. For the gate, no case of a module
 you run may be skipped. `phpunit.xml.dist` in this module only runs
@@ -406,10 +416,13 @@ Do not ship an empty `{}`: the core Resetter rejects it. This module's own
 `etc/reset.json` clears the core `TransportBuilder`, so recipients from a
 failed send don't carry into the next email.
 
-It also resets per-request state in the Stripe Payments helpers. Run
+It also resets per-request state in the Stripe Payments helpers and models,
+in core order loading (`ShippingAssignmentBuilder`, the `SalesGraphQl` order
+item cache), and the per-request lookups of the best-seller and product-link
+modules. Run
 `php vendor/magenxcommerce/module-graph-ql-app-server/bin/check-reset-json.php` from the
 Magento root after installing or upgrading Stripe; it checks every entry
-against the installed classes.
+against the installed classes. The GraphQL state workflow runs it too.
 
 [STATE_AUDIT.md](STATE_AUDIT.md) lists the state findings in our own
 modules, ranked. The "must fix" items block worker traffic.

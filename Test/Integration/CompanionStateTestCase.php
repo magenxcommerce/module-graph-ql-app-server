@@ -20,8 +20,10 @@ use PHPUnit\Framework\TestCase;
  * Runs Cases\CompanionCases through StateDiff, seeding the data a case needs first.
  *
  * Seeds go through the modules' own GraphQL API where one exists, unmeasured,
- * so they depend on nothing but the public contract; only reward points, which
- * have no storefront write, use the module's service interface.
+ * so they depend on nothing but the public contract. Two use the module's own
+ * models instead: reward points, which have no storefront write, and the GDPR
+ * request, which the API refuses while the customer has an open order (and
+ * customer A's fixture order is open).
  *
  * Subclasses carry the fixtures (DB isolation must stay disabled: every
  * request commits, as in core GraphQlStateTest).
@@ -187,20 +189,28 @@ abstract class CompanionStateTestCase extends TestCase
     }
 
     /**
-     * A pending GDPR request of customer A.
+     * A pending erase request of customer A, as requestGdprAction would queue it.
+     *
+     * Not through requestGdprAction: it refuses export_data (that is
+     * myPersonalDataExport) and refuses the other types while the customer has
+     * an open order. Erase is the one type that stays pending, so it changes no
+     * customer data.
      *
      * @return array<string, string|int>
      */
     private function seedGdprRequest(): array
     {
-        $this->seedRequest(
-            <<<'QUERY'
-                mutation magenxSeedGdprRequest($note: String) {
-                    requestGdprAction(input: { type: EXPORT_DATA, note: $note }) { id }
-                }
-                QUERY,
-            ['note' => CompanionCases::LEAK_MARKER . ' gdpr request']
-        );
+        $objectManager = $this->stateDiff->getTestObjectManager();
+        $customer = $objectManager->get(CustomerRepositoryInterface::class)
+            ->get(CompanionCases::CUSTOMERS['A']['email']);
+        $request = $objectManager->create(\Magenx\Gdpr\Model\DsrRequest::class);
+        $request->addData([
+            'customer_id' => (int) $customer->getId(),
+            'type' => \Magenx\Gdpr\Model\DsrRequest::TYPE_ERASE_DATA,
+            'status' => \Magenx\Gdpr\Model\DsrRequest::STATUS_PENDING,
+            'customer_note' => CompanionCases::LEAK_MARKER . ' gdpr request',
+        ]);
+        $objectManager->get(\Magenx\Gdpr\Model\ResourceModel\DsrRequest::class)->save($request);
         return [];
     }
 

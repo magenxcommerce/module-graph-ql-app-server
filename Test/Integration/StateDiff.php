@@ -30,8 +30,10 @@ use PHPUnit\Framework\TestCase;
  *    can be checked for substrings it must not contain (another customer's
  *    data);
  *  - GraphQL errors fail the case unless it allows them;
- *  - tokens are issued before the measured window, so only the request
- *    itself is compared, as a worker would serve it;
+ *  - both requests' tokens are issued before the first measured request,
+ *    so only the requests themselves are compared, as a worker would serve
+ *    them (a token issued between them would put the whole login stack
+ *    inside the window of a guest-then-customer case);
  *  - execute() runs an unmeasured request, to seed data through the public API.
  *
  * Every object the test object manager builds is registered with the core
@@ -94,10 +96,13 @@ class StateDiff
         [$expected1, $expected2] = $case['expected'];
         $errorsAllowed = (bool) ($case['errors'] ?? false);
 
-        $output1 = $this->measuredRequest($case['query'], $variables, $operationName, $auth1, $test, true);
+        $token1 = $auth1 === null ? null : $this->issueToken($auth1);
+        $token2 = $auth2 === null ? null : $this->issueToken($auth2);
+
+        $output1 = $this->measuredRequest($case['query'], $variables, $operationName, $token1, $test, true);
         $this->assertResponse($test, $output1, (array) $expected1, [], $errorsAllowed, 'first request');
 
-        $output2 = $this->measuredRequest($case['query'], $variables2, $operationName, $auth2, $test, false);
+        $output2 = $this->measuredRequest($case['query'], $variables2, $operationName, $token2, $test, false);
         $this->assertResponse(
             $test,
             $output2,
@@ -142,18 +147,15 @@ class StateDiff
      * One request inside the comparison window, as GraphQlStateDiff::request() does it.
      *
      * @param array<string, mixed> $variables
-     * @param array{email: string, password: string}|null $credentials
      */
     private function measuredRequest(
         string $query,
         array $variables,
         string $operationName,
-        ?array $credentials,
+        ?string $token,
         TestCase $test,
         bool $firstRequest
     ): string {
-        $token = $credentials === null ? null : $this->issueToken($credentials);
-
         $this->objectManagerForTest->_resetState();
         $this->comparator->rememberObjectsStateBefore($firstRequest);
         $output = $this->dispatch($query, $variables, $operationName, $token);

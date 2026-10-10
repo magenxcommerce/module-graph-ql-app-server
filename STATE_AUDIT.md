@@ -52,6 +52,13 @@ collector per request: reset `TotalsCollectorList::$totalCollector`, which
 its getter recreates lazily. That needs an exception in
 `bin/check-reset-json.php`, because the constructor assigns that property.
 
+The lost codes are now mitigated here: `Plugin\Quote\RestoreTotalCodes`
+(graphql area) sets every total whose code is null back to the code the
+collector registered it under, on each `Collector::getCollectors()`, which
+every collect and fetch goes through. A plugin on `_resetState()` itself is
+not possible: the interceptor generator skips that method. The store the
+collector was built for is still kept, so that part of the fix is open.
+
 ## Fix status
 
 Fixes for #1, #2 and every "should fix" row below are pushed to branch
@@ -167,8 +174,34 @@ It fails when an entry no longer matches the installed class: a missing
 property, a changed default, a property the constructor assigns, or a class
 that has gained its own `_resetState()`.
 
+The companion and core state tests then flagged more of Stripe's
+`Model/` and `Observer/` classes (checked against the public
+`stripe-magento2-releases` 4.6.7 source; CI installs 4.7.1):
+
+- `Observer\QuoteObserver::$hasSubscriptions`: worked out once for the
+  first quote on a shared observer of `sales_quote_collect_totals_before`,
+  then reused for every later cart. It picks the tax calculation method, so
+  in a worker customer B's cart is taxed as customer A's was. Reset here.
+- `Model\Order\InitialFeeManagement::$initialFee`/`$baseInitialFee`: an
+  order's fee kept on a shared object, written onto the next order by
+  `setDataFrom()`. Reset here.
+- `Model\Stripe\Service\StripeObjectService::$objectSpace` and
+  `Model\Config::$isSubscriptionsEnabled`: per-call and config state on
+  shared objects. Reset here.
+- `Model\InitialFee` and `Tax\Model\Quote\Total\StripeFlatFees` set their
+  total code only in the constructor, so core `AbstractTotal::_resetState()`
+  leaves them without one (same as #1). `reset.json` cannot help: the
+  Resetter skips it for classes with their own `_resetState()`. Mitigated
+  by `RestoreTotalCodes`, above.
+
+The same runs flagged core order loading, which also keeps state:
+`Sales\Model\Order\ShippingAssignmentBuilder::$orderId` and
+`SalesGraphQl\Model\OrderItem\DataProvider`'s order item cache (no
+cross-customer read, since the order resolver checks ownership first, but
+stale and growing, and it keeps whole order models alive). Reset here.
+
 Still to check on the install:
-- `Model/` classes. The audit so far covered `Helper/` only:
+- The rest of Stripe's `Model/` classes:
   `grep -rnE '^\s+(public|protected|private) (static )?\$\w+ = ' vendor/stripe/module-payments/Model`
 - The guest branch, which reads `sessionManager->getStripeCustomerId()` from
   the PHP session.
@@ -208,8 +241,12 @@ and grow with every product they see. The fix for each is
 - **`SocialLoginGraphQl\Model\Config::readEnv()`:** reads the secret from
   env or `$_SERVER` on every call, with no caching. Deployment note: the
   worker container needs the same environment variable PHP-FPM gets today.
-- **Request-independent memos:** `best-seller` table existence,
-  `auto-product-links` attribute and link-type ids, and garan font metrics.
+- **Request-independent memos:** `auto-product-links` attribute ids and
+  garan font metrics. The `best-seller` table check and the
+  `auto-product-links` link-type id were listed here too, but the state test
+  counts any change to a shared object, so this module's `etc/reset.json`
+  now clears both after each request (one cheap lookup per request, as
+  under PHP-FPM).
 - **No static properties, `exit`/`die`, PHP sessions or `Registry`** on any
   GraphQL path.
 - **Search-criteria builders** are always used in one chained

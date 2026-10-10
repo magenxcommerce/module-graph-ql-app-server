@@ -47,5 +47,31 @@
     },
     "StripeIntegration\\Payments\\Helper\\RequestCache": {
         "cache": []
+    },
+    "StripeIntegration\\Payments\\Observer\\QuoteObserver": {
+        "hasSubscriptions": null
+    },
+    "StripeIntegration\\Payments\\Model\\Order\\InitialFeeManagement": {
+        "initialFee": 0,
+        "baseInitialFee": 0
+    },
+    "StripeIntegration\\Payments\\Model\\Stripe\\Service\\StripeObjectService": {
+        "objectSpace": null
+    },
+    "StripeIntegration\\Payments\\Model\\Config": {
+        "isSubscriptionsEnabled": null
+    },
+    "Magento\\Sales\\Model\\Order\\ShippingAssignmentBuilder": {
+        "orderId": null
+    },
+    "Magento\\SalesGraphQl\\Model\\OrderItem\\DataProvider": {
+        "orderItemIds": [],
+        "orderItemList": []
+    },
+    "Magenx\\BestSellerGraphQl\\Model\\BestSellerProvider": {
+        "tableCache": []
+    },
+    "Magenx\\AutoProductLinks\\Model\\Link\\LinkTypeResolver": {
+        "boughtTogetherId": null
     }
 }
