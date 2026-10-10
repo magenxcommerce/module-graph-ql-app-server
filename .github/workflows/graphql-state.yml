@@ -222,12 +222,17 @@ jobs:
           cp ../../../vendor/magenxcommerce/module-graph-ql-app-server/Test/Integration/_files/state-filter-list-*.php \
             framework/Magento/TestFramework/ApplicationStateComparator/_files/
 
+      # Both suites: memory_limit caps PHP well below the runner's RAM, so a
+      # leak fails as a PHP fatal naming the test instead of the runner
+      # being shut down; the verbose event log streams each test's start, end,
+      # elapsed time and memory into the job log as it happens.
       - name: Companion state tests
         working-directory: ${{ env.MAGENTO_ROOT }}/dev/tests/integration
         run: >-
-          php ../../../vendor/bin/phpunit -c phpunit.xml
+          php -d memory_limit=4G ../../../vendor/bin/phpunit -c phpunit.xml
           --testsuite "Magenx companion state"
           --log-junit "$RUNNER_TEMP/companion-state.xml"
+          --log-events-verbose-text php://stdout
           --display-skipped
 
       - name: Core GraphQL state tests
@@ -236,9 +241,10 @@ jobs:
         # Reuse the test install of the previous step instead of reinstalling.
         run: >-
           sed -i 's/name="TESTS_CLEANUP" value="enabled"/name="TESTS_CLEANUP" value="disabled"/' phpunit.xml &&
-          php ../../../vendor/bin/phpunit -c phpunit.xml
+          php -d memory_limit=4G ../../../vendor/bin/phpunit -c phpunit.xml
           --testsuite "Core GraphQl state"
           --log-junit "$RUNNER_TEMP/core-state.xml"
+          --log-events-verbose-text php://stdout
 
       # etc/reset.json against the installed Stripe and core: a renamed
       # property or changed default would make an entry silently wrong.
