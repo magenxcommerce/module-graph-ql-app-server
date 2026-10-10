@@ -53,6 +53,8 @@ services:
       MAGENX_WORKER_MAX_MEMORY_MB:
       MAGENX_WORKER_MAX_AGE:
       MAGENX_WORKER_ALLOWED_FIELDS:
+      MAGENX_WORKER_MAX_BODY_KB:
+      MAGENX_WORKER_WARMUP_QUERY:
       # nginx is the only client of the worker port: take the client IP from X-Real-IP.
       MAGENX_WORKER_TRUST_X_REAL_IP: "1"
     depends_on:
@@ -91,9 +93,6 @@ services:
       timeout: ${HEALTHCHECK_TIMEOUT}
       retries: ${HEALTHCHECK_RETRIES}
     ulimits:
-      memlock:
-        soft: -1
-        hard: -1
       nofile:
         soft: 65536
         hard: 65536

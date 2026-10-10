@@ -6,6 +6,8 @@ namespace Magenx\AppServer\Worker;
 
 use Laminas\Stdlib\Parameters;
 use Magento\Framework\App\Area;
+use Magento\Framework\App\Cache\StateInterface as CacheState;
+use Magento\Framework\App\Cache\Type\Config as ConfigCache;
 use Magento\Framework\App\ErrorHandler;
 use Magento\Framework\App\FrontControllerInterface;
 use Magento\Framework\App\MaintenanceMode;
@@ -14,9 +16,11 @@ use Magento\Framework\App\ResourceConnection;
 use Magento\Framework\App\Response\Http as HttpResponse;
 use Magento\Framework\App\State;
 use Magento\Framework\Event\ManagerInterface as EventManager;
+use Magento\Framework\GraphQl\Query\QueryParser;
 use Magento\Framework\ObjectManager\ConfigLoaderInterface;
 use Magento\Framework\ObjectManager\Resetter\ResetterInterface;
 use Magento\Framework\ObjectManagerInterface;
+use Magento\GraphQl\Model\Config\DisableSession;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -34,13 +38,26 @@ use Psr\Log\LoggerInterface;
  */
 class GraphQlWorker
 {
+    /**
+     * Last entry core System config type writes when it (re)builds the config
+     * cache, encrypted with a fresh nonce each time: its value changes on every
+     * admin config save, cache clean and cache flush.
+     */
+    private const CONFIG_MARKER_ID = 'system_scopes';
+
+    /** Parsed queries kept by the core QueryParser before it is emptied. */
+    private const MAX_PARSED_QUERIES = 1000;
+
     private FrontControllerInterface $frontController;
     private HttpRequest $request;
     private EventManager $eventManager;
     private MaintenanceMode $maintenanceMode;
     private ResourceConnection $resourceConnection;
     private LoggerInterface $logger;
+    private QueryParser $queryParser;
+    private ?ConfigCache $configCache = null;
     private \Closure $clearUnresetRequestState;
+    private \Closure $countParsedQueries;
 
     private bool $trustRealIp = false;
     private bool $healthy = true;
@@ -50,6 +67,9 @@ class GraphQlWorker
     /** Tells worker threads apart: getmypid() is the same for all of them. */
     private string $id = '';
     private int|false $envMtime = false;
+    private ?string $configMarker = null;
+    private float $configCheckedAt = 0.0;
+    private bool $sessionWarned = false;
 
     public function __construct(
         private readonly ObjectManagerInterface $objectManager,
@@ -57,6 +77,7 @@ class GraphQlWorker
         private readonly Limits $limits,
         private readonly ReadOnlyScope $scope,
         private readonly string $envFile,
+        private readonly string $warmupQuery = '',
     ) {
     }
 
@@ -80,6 +101,15 @@ class GraphQlWorker
         $this->maintenanceMode = $om->get(MaintenanceMode::class);
         $this->resourceConnection = $om->get(ResourceConnection::class);
         $this->logger = $om->get(LoggerInterface::class);
+        $this->queryParser = $om->get(QueryParser::class);
+
+        // The core parser memoizes every distinct query and is never reset;
+        // read its size so afterRequest() can bound it.
+        $this->countParsedQueries = \Closure::bind(
+            fn (): int => count($this->parsedQueries),
+            $this->queryParser,
+            QueryParser::class
+        );
 
         // Request\Http::_resetState() (2.4.8) misses these; stale values
         // would leak the previous request's method/route into this one.
@@ -109,14 +139,32 @@ class GraphQlWorker
         $this->lastRequestAt = $this->bootedAt;
         $this->envMtime = $this->envMtime();
 
+        if ($om->get(CacheState::class)->isEnabled(ConfigCache::TYPE_IDENTIFIER)) {
+            $this->configCache = $om->get(ConfigCache::class);
+        } else {
+            $this->logger->warning(
+                'magenx-app-server: config cache disabled; admin config changes reach workers only on recycle'
+            );
+        }
+        if (class_exists(DisableSession::class) && !$om->get(DisableSession::class)->isDisabled()) {
+            $this->logger->warning(
+                'magenx-app-server: GraphQL sessions are enabled; run '
+                . '`bin/magento config:set graphql/session/disable 1` (the worker serves anonymous reads only)'
+            );
+        }
+
+        $this->warmUp();
+
         // Start request #1 from the same baseline as every later request.
         $this->resetter->_resetState();
+        $this->configMarker = $this->loadConfigMarker();
 
         $this->logger->notice(sprintf(
-            'magenx-app-server: worker %s booted in %d ms, memory %s',
+            'magenx-app-server: worker %s booted in %d ms, memory %s, %s',
             $this->workerName(),
             (int) round((microtime(true) - ($startedAt ?? microtime(true))) * 1000),
-            $this->formatMemory()
+            $this->formatMemory(),
+            $this->formatOpcache()
         ));
     }
 
@@ -131,7 +179,7 @@ class GraphQlWorker
         $this->healthy = true;
         try {
             $this->hydrateRequest();
-            if (!$this->scope->allows($this->request)) {
+            if (!$this->scope->allows($this->request, $this->queryParser)) {
                 // Not ours: refuse before Magento runs, so nginx replays it on PHP-FPM.
                 $this->sendError(503, 'Out of worker scope', ['X-Magenx-Worker: out-of-scope']);
             } elseif ($this->maintenanceMode->isOn((string) ($_SERVER['REMOTE_ADDR'] ?? ''))) {
@@ -164,8 +212,12 @@ class GraphQlWorker
         if (!$this->rollBackOpenTransactions()) {
             $reasons[] = 'open-transaction';
         }
+        $this->closeSession();
         try {
             $this->resetter->_resetState();
+            if (($this->countParsedQueries)() > self::MAX_PARSED_QUERIES) {
+                $this->queryParser->reloadState();
+            }
         } catch (\Throwable $e) {
             $reasons[] = 'reset-failed';
             $this->logCritical($e);
@@ -193,6 +245,39 @@ class GraphQlWorker
     public function stopped(): void
     {
         $this->logExit(sprintf('stopped by FrankenPHP (idle %d s)', time() - $this->lastRequestAt));
+    }
+
+    /**
+     * Run one query through the front controller before the first request, so
+     * request #1 does not pay for autoloading, config and schema loading.
+     * The response is discarded; boot() resets all state afterwards.
+     */
+    private function warmUp(): void
+    {
+        if ($this->warmupQuery === '') {
+            return;
+        }
+        $saved = [$_SERVER, $_GET, $_POST, $_COOKIE];
+        $_GET = ['query' => $this->warmupQuery];
+        $_POST = [];
+        $_COOKIE = [];
+        $_SERVER = [
+            'REQUEST_METHOD' => 'GET',
+            'REQUEST_URI' => '/graphql?query=' . rawurlencode($this->warmupQuery),
+            'QUERY_STRING' => 'query=' . rawurlencode($this->warmupQuery),
+            'HTTP_HOST' => 'localhost',
+            'REMOTE_ADDR' => '127.0.0.1',
+        ] + $_SERVER;
+        try {
+            $this->hydrateRequest();
+            $this->frontController->dispatch($this->request);
+        } catch (\Throwable $e) {
+            $this->logger->warning('magenx-app-server: warm-up query failed: ' . $e->getMessage());
+        } finally {
+            [$_SERVER, $_GET, $_POST, $_COOKIE] = $saved;
+            $this->rollBackOpenTransactions();
+            $this->closeSession();
+        }
     }
 
     private function dispatch(): void
@@ -227,14 +312,19 @@ class GraphQlWorker
             $_SERVER['REMOTE_ADDR'] = $realIp;
         }
 
+        // Anonymous reads need no cookie, and a session cookie would let
+        // Magento resume a PHP session inside this long-lived thread. Core
+        // PhpCookieReader reads $_COOKIE directly, so empty it as well.
+        $_COOKIE = [];
+        unset($_SERVER['HTTP_COOKIE']);
+
         // Mirrors Laminas PhpEnvironment\Request::__construct(); setServer()
         // derives headers, method and URI. The body is read lazily from
         // php://input by getContent(), which FrankenPHP serves per request.
+        // Request::_resetState() keeps cookie params, so always replace them.
         $this->request->setQuery(new Parameters($_GET));
         $this->request->setPost(new Parameters($_POST));
-        if ($_COOKIE) {
-            $this->request->setCookies(new Parameters($_COOKIE));
-        }
+        $this->request->setCookies(new Parameters([]));
         $this->request->setServer(new Parameters($_SERVER));
     }
 
@@ -260,6 +350,61 @@ class GraphQlWorker
     }
 
     /**
+     * A session must never outlive its request in a shared thread. Changes are
+     * discarded: in scope, the worker only serves anonymous reads.
+     */
+    private function closeSession(): void
+    {
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            return;
+        }
+        session_abort();
+        if (!$this->sessionWarned) {
+            $this->sessionWarned = true;
+            $this->logger->warning(
+                'magenx-app-server: a request started a PHP session; set graphql/session/disable=1'
+            );
+        }
+    }
+
+    /**
+     * True once the config cache was rebuilt or flushed since this worker
+     * loaded it. Checked at most once a second: one small cache read.
+     */
+    private function configChanged(): bool
+    {
+        if ($this->configCache === null) {
+            return false;
+        }
+        $now = microtime(true);
+        if ($now - $this->configCheckedAt < 1.0) {
+            return false;
+        }
+        $this->configCheckedAt = $now;
+        $current = $this->loadConfigMarker();
+        if ($this->configMarker === null) {
+            // Config not cached at boot: take the first value seen as baseline.
+            $this->configMarker = $current;
+            return false;
+        }
+        return $current !== $this->configMarker;
+    }
+
+    private function loadConfigMarker(): ?string
+    {
+        if ($this->configCache === null) {
+            return null;
+        }
+        try {
+            $value = $this->configCache->load(self::CONFIG_MARKER_ID);
+        } catch (\Throwable $e) {
+            $this->logCritical($e);
+            return $this->configMarker;
+        }
+        return is_string($value) ? $value : null;
+    }
+
+    /**
      * @return string[] the recycle limits this worker has reached
      */
     private function recycleReasons(): array
@@ -279,6 +424,10 @@ class GraphQlWorker
         if ($this->envMtime() !== $this->envMtime) {
             $reasons[] = 'env-changed';
         }
+        // Admin config save, cache:clean config or cache:flush: this worker holds the old config.
+        if ($this->configChanged()) {
+            $reasons[] = 'config-changed';
+        }
         return $reasons;
     }
 
@@ -290,7 +439,7 @@ class GraphQlWorker
         $limits = $this->limits;
         try {
             $this->logger->notice(sprintf(
-                'magenx-app-server: worker %s %s after %d/%d requests, %d/%d s, memory %s (limit %d MB)',
+                'magenx-app-server: worker %s %s after %d/%d requests, %d/%d s, memory %s (limit %d MB), %s',
                 $this->workerName(),
                 $why,
                 $this->handled,
@@ -298,7 +447,8 @@ class GraphQlWorker
                 time() - $this->bootedAt,
                 $limits->maxAgeSeconds,
                 $this->formatMemory(),
-                intdiv($limits->maxMemoryBytes, 1024 * 1024)
+                intdiv($limits->maxMemoryBytes, 1024 * 1024),
+                $this->formatOpcache()
             ));
         } catch (\Throwable) {
             error_log('magenx-app-server: worker ' . $this->workerName() . ' ' . $why);
@@ -316,6 +466,42 @@ class GraphQlWorker
             '%.1f MB (peak %.1f MB)',
             memory_get_usage() / 1048576,
             memory_get_peak_usage() / 1048576
+        );
+    }
+
+    /**
+     * Opcache fill, shared by every thread of the FrankenPHP process. A full
+     * cache or OOM restarts mean opcache.memory_consumption or
+     * max_accelerated_files is too small: every boot then recompiles.
+     */
+    private function formatOpcache(): string
+    {
+        $status = function_exists('opcache_get_status') ? opcache_get_status(false) : false;
+        if (!is_array($status) || empty($status['opcache_enabled'])) {
+            return 'opcache off';
+        }
+        $memory = $status['memory_usage'];
+        $stats = $status['opcache_statistics'];
+        $interned = $status['interned_strings_usage'] ?? ['used_memory' => 0, 'buffer_size' => 0];
+        $total = $memory['used_memory'] + $memory['free_memory'] + $memory['wasted_memory'];
+        $full = !empty($status['cache_full'])
+            || $memory['free_memory'] < $total / 10
+            || $stats['oom_restarts'] > 0
+            || $stats['hash_restarts'] > 0;
+
+        return sprintf(
+            'opcache %d scripts (%d max), %.0f/%.0f MB, interned %.0f/%.0f MB, hit %.1f%%, '
+            . 'restarts oom %d hash %d%s',
+            $stats['num_cached_scripts'],
+            $stats['max_cached_keys'],
+            $memory['used_memory'] / 1048576,
+            $total / 1048576,
+            $interned['used_memory'] / 1048576,
+            $interned['buffer_size'] / 1048576,
+            $stats['opcache_hit_rate'],
+            $stats['oom_restarts'],
+            $stats['hash_restarts'],
+            $full ? ' FULL: raise opcache.memory_consumption / max_accelerated_files' : ''
         );
     }
 

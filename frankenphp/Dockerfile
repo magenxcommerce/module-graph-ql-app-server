@@ -71,17 +71,19 @@ RUN <<EOF
   php -m
 EOF
 
-# Runtime shared libraries for frankenphp, libphp and every extension.
+# Runtime shared libraries for frankenphp, libphp and every extension, staged
+# under the build's multiarch dir (x86_64-linux-gnu, aarch64-linux-gnu, ...).
 RUN <<EOF
   set -e
-  mkdir -p /tmp/runtime-libs
+  libdir="/tmp/runtime-libs/usr/lib/$(gcc -print-multiarch)"
+  mkdir -p "$libdir"
   for file in /usr/local/bin/frankenphp /usr/local/lib/libphp.so "$(php-config --extension-dir)"/*.so; do
     [ -f "$file" ] || continue
     ldd "$file" 2>/dev/null | awk '/=> \// {print $3}' | while read -r dep; do
-      [ -f "/tmp/runtime-libs/$(basename "$dep")" ] || cp -L "$dep" /tmp/runtime-libs/
+      [ -f "$libdir/$(basename "$dep")" ] || cp -L "$dep" "$libdir/"
     done
   done
-  cp -L /usr/local/lib/libphp.so /tmp/runtime-libs/
+  cp -L /usr/local/lib/libphp.so "$libdir/"
 EOF
 
 # App mount point, writable Caddy dirs, timezone. The official binary carries
@@ -107,7 +109,7 @@ ARG DHI_STACK_UID
 COPY --from=build /usr/local/bin/frankenphp       /usr/local/bin/frankenphp
 COPY --from=build /usr/local/lib/php/             /usr/local/lib/php/
 COPY --from=build /usr/local/etc/php/             /usr/local/etc/php/
-COPY --from=build /tmp/runtime-libs/              /usr/lib/x86_64-linux-gnu/
+COPY --from=build /tmp/runtime-libs/              /
 COPY --from=build ${MAGENTO_ROOT_PATH}            ${MAGENTO_ROOT_PATH}
 COPY --from=build /tmp/timezone                   /etc/timezone
 COPY --from=build /tmp/localtime                  /etc/localtime

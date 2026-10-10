@@ -58,13 +58,8 @@ foreach ($entries as $class => $properties) {
             $problems++;
             continue;
         }
-        if ($property->isStatic()) {
-            $default = $reflection->getStaticProperties()[$name] ?? null;
-            $defaults = $reflection->getDefaultProperties();
-            $default = array_key_exists($name, $defaults) ? $defaults[$name] : $default;
-        } else {
-            $default = $property->hasDefaultValue() ? $property->getDefaultValue() : null;
-        }
+        // getDefaultProperties() covers static and instance properties alike.
+        $default = $reflection->getDefaultProperties()[$name] ?? null;
         if ($default !== $resetValue) {
             echo "FAIL   $class::\$$name declared default " . var_export($default, true)
                 . ' differs from reset value ' . var_export($resetValue, true) . "\n";
