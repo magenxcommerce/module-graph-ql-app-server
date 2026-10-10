@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.3](https://github.com/magenxcommerce/module-graph-ql-app-server/compare/v1.1.2...v1.1.3) (2026-10-10)
+
+
+### Bug Fixes
+
+* keep the state-test config fixture cheap and make CI runs diagno… ([#16](https://github.com/magenxcommerce/module-graph-ql-app-server/issues/16)) ([3bb414f](https://github.com/magenxcommerce/module-graph-ql-app-server/commit/3bb414f5585ac05ce2d868eb8c645b3ca09a53b3))
+* keep the state-test config fixture cheap and make CI runs diagnosable ([3bb414f](https://github.com/magenxcommerce/module-graph-ql-app-server/commit/3bb414f5585ac05ce2d868eb8c645b3ca09a53b3))
+
 ## [1.1.2](https://github.com/magenxcommerce/module-graph-ql-app-server/compare/v1.1.1...v1.1.2) (2026-10-10)
 
 
