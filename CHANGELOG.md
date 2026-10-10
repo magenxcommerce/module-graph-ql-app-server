@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.1.0](https://github.com/magenxcommerce/module-graph-ql-app-server/compare/v1.0.3...v1.1.0) (2026-10-10)
+
+
+### Features
+
+* config-change recycling, boot warm-up, opcache stats; drop cookies and cap bodies ([14dd41c](https://github.com/magenxcommerce/module-graph-ql-app-server/commit/14dd41c4a369938217c0a1abe97ec6ce5b2aed5f))
+
+
+### Bug Fixes
+
+* Add config change detection, warmup query, and opcache monitoring ([#9](https://github.com/magenxcommerce/module-graph-ql-app-server/issues/9)) ([14dd41c](https://github.com/magenxcommerce/module-graph-ql-app-server/commit/14dd41c4a369938217c0a1abe97ec6ce5b2aed5f))
+
 ## [1.0.3](https://github.com/magenxcommerce/module-graph-ql-app-server/compare/v1.0.2...v1.0.3) (2026-10-09)
 
 
