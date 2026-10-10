@@ -7,6 +7,7 @@ declare(strict_types=1);
 namespace Magenx\AppServer\Test\Integration;
 
 use Magenx\AppServer\Test\Integration\Cases\CompanionCases;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Companion private reads and mutations: what must hold before the worker
@@ -40,9 +41,9 @@ class CompanionCustomerStateTest extends CompanionStateTestCase
      * @magentoConfigFixture default_store magenx_garan/garan/enabled 1
      * @magentoConfigFixture default_store carriers/magenx_storepickup/active 1
      * @magentoConfigFixture default_store carriers/magenx_storepickup/locations {"s":{"code":"STATE-PICKUP","name":"Pickup","city":"Testville"}}
-     * @dataProvider customerCases
      * @param array<string, mixed> $case
      */
+    #[DataProvider('customerCases')]
     public function testCustomerState(array $case): void
     {
         $this->runCase($case);
@@ -62,9 +63,9 @@ class CompanionCustomerStateTest extends CompanionStateTestCase
      * @magentoConfigFixture default_store catalog/productalert/allow_price 1
      * @magentoConfigFixture default_store catalog/productalert/allow_stock 1
      * @magentoConfigFixture default_store magenx_social_login/general/shared_secret state-test-secret
-     * @dataProvider mutationCases
      * @param array<string, mixed> $case
      */
+    #[DataProvider('mutationCases')]
     public function testMutationState(array $case): void
     {
         $this->runCase($case);

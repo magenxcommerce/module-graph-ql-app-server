@@ -378,9 +378,28 @@ cd dev/tests/integration
 ../../../vendor/bin/phpunit -c phpunit.xml --testsuite "Magenx companion state"
 ```
 
+On Mage-OS, also copy `Test/Integration/_files/state-filter-list-mageos.php`
+into `dev/tests/integration/framework/Magento/TestFramework/ApplicationStateComparator/_files/`:
+it filters the plugin references Mage-OS's compiled interceptors cache and
+its Ignition error handler, which the core lists do not know about.
+
 Cases of a disabled module are skipped. For the gate, no case of a module
 you run may be skipped. `phpunit.xml.dist` in this module only runs
 `Test/Unit`, which checks the case catalogue without Magento.
+
+CI runs all of this in `.github/workflows/graphql-state.yml`, started by
+hand (Actions → GraphQL state → Run workflow): a fresh Mage-OS install on
+PHP 8.4 ZTS (the FrankenPHP build), MariaDB and OpenSearch services, then the companion and
+core state suites. Everything is installed with composer, as a store does:
+this module from the branch it runs on, every `magenxcommerce/module-*` package
+(from Packagist once published, from its GitHub repository until then), and
+Stripe (`stripe/stripe-payments`) from the Magento Marketplace. It uses the
+organisation secrets `MAGENTO_PUBLIC_KEY`/`MAGENTO_PRIVATE_KEY` for
+repo.magento.com and `MAGENX_MODULES_TOKEN` for private module repositories;
+without them Stripe or those modules are not installed and their cases are
+skipped. A manual run takes a Mage-OS version and a branch name to install
+from every module repository that has it, e.g. a fix branch before it is
+merged.
 
 `reset.json` format: `{"Vendor\\Class": {"property": <reset value>}}`.
 Do not ship an empty `{}`: the core Resetter rejects it. This module's own

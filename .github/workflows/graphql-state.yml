@@ -1,0 +1,250 @@
+name: GraphQL state
+
+# Runs the request-state gate for the worker (README, "Verification gate"):
+# core GraphQlStateTest and friends plus this module's companion state tests
+# (Test/Integration), in Magento's integration test framework, on a fresh
+# Mage-OS install with every magenxcommerce module and Stripe, all installed
+# with composer as a store installs them.
+#
+# Only the GraphQL area is under test: that is what the FrankenPHP worker
+# serves; admin stays on PHP-FPM. PHP is the thread-safe (ZTS) build, as in
+# the FrankenPHP image.
+#
+# Secrets (organisation secrets, as for the shared module CI):
+#  - MAGENTO_PUBLIC_KEY / MAGENTO_PRIVATE_KEY: repo.magento.com, for Stripe
+#    (stripe/stripe-payments from the Marketplace);
+#  - MAGENX_MODULES_TOKEN: read access to magenxcommerce repositories, for
+#    modules not on Packagist yet. A module already on Packagist is installed
+#    from there; the others from their GitHub repository.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mageos-version:
+        description: 'Mage-OS version (mage-os/project-community-edition)'
+        default: '3.5.0'
+      modules-ref:
+        description: 'Branch to install from each module repo when it exists (latest release otherwise)'
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: graphql-state-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MAGEOS_VERSION: ${{ inputs.mageos-version || '3.5.0' }}
+  MODULES_REF: ${{ inputs.modules-ref || '' }}
+  MAGENTO_ROOT: ${{ github.workspace }}/magento
+
+jobs:
+  state:
+    name: State tests (Mage-OS, PHP 8.4 ZTS)
+    if: ${{ !startsWith(github.head_ref, 'release-please--') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+
+    services:
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: magento_integration_tests
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s --health-timeout=5s --health-retries=30
+      opensearch:
+        image: opensearchproject/opensearch:2.19.1
+        env:
+          discovery.type: single-node
+          DISABLE_SECURITY_PLUGIN: 'true'
+          DISABLE_INSTALL_DEMO_CONFIG: 'true'
+          OPENSEARCH_JAVA_OPTS: -Xms1g -Xmx1g
+        ports: ['9200:9200']
+        options: >-
+          --health-cmd="curl -fs http://localhost:9200/_cluster/health"
+          --health-interval=10s --health-timeout=5s --health-retries=30
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: module
+
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        env:
+          phpts: ts
+        with:
+          php-version: '8.4'
+          extensions: bcmath, ctype, curl, dom, ftp, gd, hash, iconv, intl, mbstring, openssl, pdo_mysql, simplexml, soap, sockets, sodium, xsl, zip
+          ini-values: memory_limit=-1, max_execution_time=0
+          coverage: none
+          tools: composer:v2
+
+      - name: Cache composer downloads
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/composer/files
+          key: composer-mageos-${{ env.MAGEOS_VERSION }}-php84
+          restore-keys: composer-mageos-
+
+      - name: Create Mage-OS project
+        run: |
+          composer create-project --no-install --no-interaction \
+            --repository-url=https://repo.mage-os.org/ \
+            "mage-os/project-community-edition=$MAGEOS_VERSION" "$MAGENTO_ROOT"
+
+      # COMPOSER_AUTH keeps the credentials in the masked environment
+      # instead of an auth.json a later step or artifact could carry out.
+      - name: Configure composer
+        working-directory: ${{ env.MAGENTO_ROOT }}
+        env:
+          MAGENTO_PUBLIC_KEY: ${{ secrets.MAGENTO_PUBLIC_KEY }}
+          MAGENTO_PRIVATE_KEY: ${{ secrets.MAGENTO_PRIVATE_KEY }}
+          GITHUB_COMPOSER_TOKEN: ${{ secrets.MAGENX_MODULES_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          auth=$(jq -cn --arg token "$GITHUB_COMPOSER_TOKEN" '{"github-oauth": {"github.com": $token}}')
+          if [ -n "$MAGENTO_PUBLIC_KEY" ] && [ -n "$MAGENTO_PRIVATE_KEY" ]; then
+            auth=$(jq -c --arg user "$MAGENTO_PUBLIC_KEY" --arg pass "$MAGENTO_PRIVATE_KEY" \
+              '. + {"http-basic": {"repo.magento.com": {"username": $user, "password": $pass}}}' <<<"$auth")
+            # Marketplace extensions only: Mage-OS provides the core packages
+            # (its mage-os/* packages replace magento/*), so Adobe's must not
+            # be picked from repo.magento.com.
+            composer config repositories.magento-marketplace \
+              '{"type": "composer", "url": "https://repo.magento.com/", "exclude": ["magento/*"]}'
+            echo "MARKETPLACE=1" >> "$GITHUB_ENV"
+          else
+            echo "::warning::MAGENTO_PUBLIC_KEY/MAGENTO_PRIVATE_KEY are not available: Stripe is not installed and its cases are skipped."
+          fi
+          echo "::add-mask::$auth"
+          echo "COMPOSER_AUTH=$auth" >> "$GITHUB_ENV"
+
+          # This module from the pull request's checkout, copied like a dist install.
+          composer config repositories.app-server \
+            '{"type": "path", "url": "../module", "options": {"symlink": false}}'
+          # Modules without a release resolve to their default branch.
+          composer config minimum-stability dev
+          composer config prefer-stable true
+
+      # Discovered rather than listed, so a new module repository is tested
+      # without editing this file: the worker serves every enabled module.
+      - name: Require modules
+        working-directory: ${{ env.MAGENTO_ROOT }}
+        env:
+          GH_TOKEN: ${{ secrets.MAGENX_MODULES_TOKEN || github.token }}
+          HAS_MODULES_TOKEN: ${{ secrets.MAGENX_MODULES_TOKEN != '' }}
+        run: |
+          set -euo pipefail
+          [ "$HAS_MODULES_TOKEN" = true ] || echo "::warning::MAGENX_MODULES_TOKEN is not set: modules that are private and not on Packagist are not installed, and their cases are skipped."
+
+          packages=('magenxcommerce/module-graph-ql-app-server:@dev')
+          [ "${MARKETPLACE:-0}" = 1 ] && packages+=('stripe/stripe-payments:*')
+
+          repos=$(gh repo list magenxcommerce --limit 300 --no-archived --json name --jq '.[].name' \
+            | grep '^module-' | grep -vx 'module-graph-ql-app-server' | sort)
+          for repo in $repos; do
+            name=$(gh api "repos/magenxcommerce/$repo/contents/composer.json" --jq '.content' 2>/dev/null \
+              | base64 -d 2>/dev/null | jq -r '.name // empty' || true)
+            if [ -z "$name" ]; then
+              echo "::warning::$repo: no readable composer.json; its cases are skipped."
+              continue
+            fi
+            source=packagist
+            if ! curl -fsS -o /dev/null "https://repo.packagist.org/p2/$name.json"; then
+              # Not on Packagist yet: install from the repository itself.
+              composer config "repositories.$repo" vcs "https://github.com/magenxcommerce/$repo"
+              source=github
+            fi
+            constraint='*'
+            if [ -n "$MODULES_REF" ] && gh api "repos/magenxcommerce/$repo/branches/$MODULES_REF" >/dev/null 2>&1; then
+              constraint="dev-$MODULES_REF"
+            fi
+            packages+=("$name:$constraint")
+            echo "$name:$constraint ($source)"
+          done
+
+          composer require --no-update --no-interaction "${packages[@]}"
+
+      - name: Install Mage-OS
+        working-directory: ${{ env.MAGENTO_ROOT }}
+        run: |
+          composer update --no-interaction --no-progress
+          composer show 'magenxcommerce/*' 'stripe/*' || true
+
+      - name: Configure the integration test framework
+        working-directory: ${{ env.MAGENTO_ROOT }}/dev/tests/integration
+        run: |
+          set -euo pipefail
+          cat > etc/install-config-mysql.php <<'PHP'
+          <?php
+          return [
+              'db-host' => '127.0.0.1',
+              'db-user' => 'root',
+              'db-password' => 'root',
+              'db-name' => 'magento_integration_tests',
+              'db-prefix' => '',
+              'backend-frontname' => 'backend',
+              'search-engine' => 'opensearch',
+              'opensearch-host' => '127.0.0.1',
+              'opensearch-port' => 9200,
+              'admin-user' => \Magento\TestFramework\Bootstrap::ADMIN_NAME,
+              'admin-password' => \Magento\TestFramework\Bootstrap::ADMIN_PASSWORD,
+              'admin-email' => \Magento\TestFramework\Bootstrap::ADMIN_EMAIL,
+              'admin-firstname' => \Magento\TestFramework\Bootstrap::ADMIN_FIRSTNAME,
+              'admin-lastname' => \Magento\TestFramework\Bootstrap::ADMIN_LASTNAME,
+              'consumers-wait-for-messages' => '0',
+          ];
+          PHP
+          cp etc/config-global.php.dist etc/config-global.php
+          php -r '
+            $xml = file_get_contents("phpunit.xml.dist");
+            $suites = <<<XML
+            <testsuites>
+                    <testsuite name="Magenx companion state">
+                        <directory>../../../vendor/magenxcommerce/module-graph-ql-app-server/Test/Integration</directory>
+                    </testsuite>
+                    <testsuite name="Core GraphQl state">
+                        <file>testsuite/Magento/GraphQl/App/GraphQlStateTest.php</file>
+                        <file>testsuite/Magento/GraphQl/App/GraphQlCustomerMutationsTest.php</file>
+                        <file>testsuite/Magento/GraphQl/App/GraphQlCheckoutMutationsStateTest.php</file>
+                    </testsuite>
+            XML;
+            $xml = preg_replace("#<testsuites>#", $suites, $xml, 1, $count);
+            $count === 1 || exit(1);
+            file_put_contents("phpunit.xml", $xml);
+          '
+          php -r 'exit(simplexml_load_file("phpunit.xml") === false ? 1 : 0);'
+          # Mage-OS-only components the core state lists do not know about.
+          cp ../../../vendor/magenxcommerce/module-graph-ql-app-server/Test/Integration/_files/state-filter-list-mageos.php \
+            framework/Magento/TestFramework/ApplicationStateComparator/_files/
+
+      - name: Companion state tests
+        working-directory: ${{ env.MAGENTO_ROOT }}/dev/tests/integration
+        run: >-
+          php ../../../vendor/bin/phpunit -c phpunit.xml
+          --testsuite "Magenx companion state"
+          --log-junit "$RUNNER_TEMP/companion-state.xml"
+          --display-skipped
+
+      - name: Core GraphQL state tests
+        if: ${{ !cancelled() }}
+        working-directory: ${{ env.MAGENTO_ROOT }}/dev/tests/integration
+        # Reuse the test install of the previous step instead of reinstalling.
+        run: >-
+          sed -i 's/name="TESTS_CLEANUP" value="enabled"/name="TESTS_CLEANUP" value="disabled"/' phpunit.xml &&
+          php ../../../vendor/bin/phpunit -c phpunit.xml
+          --testsuite "Core GraphQl state"
+          --log-junit "$RUNNER_TEMP/core-state.xml"
+
+      - name: Upload results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: graphql-state-results
+          path: |
+            ${{ runner.temp }}/*.xml
+            ${{ env.MAGENTO_ROOT }}/dev/tests/integration/tmp/sandbox-*/var/log/*.log
+          if-no-files-found: ignore
