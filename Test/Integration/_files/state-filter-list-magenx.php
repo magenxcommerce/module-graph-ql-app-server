@@ -16,6 +16,13 @@
  *   cannot reach (the class has its own _resetState()); the setting is
  *   stale until the worker recycles (STATE_AUDIT.md).
  *
+ * - QueryParser::$parsedQueries: the parsed document per query text, the
+ *   same for every customer. Core counts it from the first measured request
+ *   on (the parser is usually built there); a seed or token warm-up request
+ *   builds it earlier, and the comparator then reports the measured query's
+ *   entry as left behind. (In the worker it holds one entry per allowlisted
+ *   query text.)
+ *
  * Classes that are not installed never match. No Magenx\ class belongs here
  * (CompanionSchemaCoverageTest fails on one): fix those with _resetState() or
  * etc/reset.json instead.
@@ -27,6 +34,7 @@ declare(strict_types=1);
 return [
     'parents' => [
         'Magento\Framework\Model\ResourceModel\Db\AbstractDb' => ['_uniqueFields' => null],
+        'Magento\Framework\GraphQl\Query\QueryParser' => ['parsedQueries' => null],
         'StripeIntegration\Payments\Model\InitialFee' => [
             '_code' => null,
             'initialFeeHelper' => null,

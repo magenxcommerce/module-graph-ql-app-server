@@ -198,7 +198,8 @@ The companion and core state tests then flagged more of Stripe's
   is reset.
 
 The same runs flagged core order loading, which also keeps state:
-`Sales\Model\Order\ShippingAssignmentBuilder::$orderId` and
+`Sales\Model\Order\ShippingAssignmentBuilder::$orderId` and `$order` (the
+last order it built shipping for, kept whole) and
 `SalesGraphQl\Model\OrderItem\DataProvider`'s order item cache (no
 cross-customer read, since the order resolver checks ownership first, but
 stale and growing, and it keeps whole order models alive). Reset here.

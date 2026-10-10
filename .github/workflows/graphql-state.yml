@@ -217,9 +217,9 @@ jobs:
             file_put_contents("phpunit.xml", $xml);
           '
           php -r 'exit(simplexml_load_file("phpunit.xml") === false ? 1 : 0);'
-          # Filter lists the core comparator does not ship: Mage-OS-only
-          # components, and properties of this stack that carry no request state.
-          cp ../../../vendor/magenxcommerce/module-graph-ql-app-server/Test/Integration/_files/state-filter-list-*.php \
+          # Filter and skip lists the core comparator does not ship: Mage-OS-only
+          # components, and state of this stack that is not request state.
+          cp ../../../vendor/magenxcommerce/module-graph-ql-app-server/Test/Integration/_files/state-{filter,skip}-list-*.php \
             framework/Magento/TestFramework/ApplicationStateComparator/_files/
 
       # The state comparator keeps every test's object graph until PHP exits
@@ -262,11 +262,15 @@ jobs:
           set -uo pipefail
           sed -i 's/name="TESTS_CLEANUP" value="enabled"/name="TESTS_CLEANUP" value="disabled"/' phpunit.xml
           status=0
-          for test in GraphQlStateTest GraphQlCustomerMutationsTest GraphQlCheckoutMutationsStateTest; do
-            echo "=== $test ==="
+          part=0
+          # PHPUnit --filter patterns, one process each. The 12 checkout tests
+          # in one process peak near 4G, so they are split.
+          for filter in 'GraphQlStateTest::' 'GraphQlCustomerMutationsTest::' \
+            'GraphQlCheckoutMutationsStateTest::test(Create|Add)' 'GraphQlCheckoutMutationsStateTest::test(Set|Place)'; do
+            echo "=== $filter ==="
             php -d memory_limit=4G ../../../vendor/bin/phpunit -c phpunit.xml \
-              --testsuite "Core GraphQl state" --filter "$test::" \
-              --log-junit "$RUNNER_TEMP/core-$test.xml" \
+              --testsuite "Core GraphQl state" --filter "$filter" \
+              --log-junit "$RUNNER_TEMP/core-$((++part)).xml" \
               --log-events-verbose-text php://stdout || status=1
           done
           exit "$status"

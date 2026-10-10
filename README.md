@@ -379,10 +379,12 @@ cd dev/tests/integration
 ../../../vendor/bin/phpunit -c phpunit.xml --testsuite "Magenx companion state"
 ```
 
-Copy `Test/Integration/_files/state-filter-list-magenx.php` into
+Copy `Test/Integration/_files/state-filter-list-magenx.php` and
+`state-skip-list-magenx.php` into
 `dev/tests/integration/framework/Magento/TestFramework/ApplicationStateComparator/_files/`:
-it filters what carries no request state, `AbstractDb::$_uniqueFields` and the
-total codes that `RestoreTotalCodes` puts back. On Mage-OS, also copy
+they cover what carries no request state, such as `AbstractDb::$_uniqueFields`,
+the parsed-query cache and the total codes that `RestoreTotalCodes` puts back
+(each entry is explained in the file). On Mage-OS, also copy
 `state-filter-list-mageos.php` there: it filters the plugin references
 Mage-OS's compiled interceptors cache and its Ignition error handler, which
 the core lists do not know about.

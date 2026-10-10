@@ -62,7 +62,8 @@
         "isSubscriptionsEnabled": null
     },
     "Magento\\Sales\\Model\\Order\\ShippingAssignmentBuilder": {
-        "orderId": null
+        "orderId": null,
+        "order": null
     },
     "Magento\\SalesGraphQl\\Model\\OrderItem\\DataProvider": {
         "orderItemIds": [],
