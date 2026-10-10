@@ -382,11 +382,11 @@ Cases of a disabled module are skipped. For the gate, no case of a module
 you run may be skipped. `phpunit.xml.dist` in this module only runs
 `Test/Unit`, which checks the case catalogue without Magento.
 
-CI runs all of this in `.github/workflows/graphql-state.yml` (pull requests,
-nightly, and on demand): a fresh Mage-OS install on PHP 8.4 ZTS (the
-FrankenPHP build), MariaDB and OpenSearch services, then the companion and
+CI runs all of this in `.github/workflows/graphql-state.yml`, started by
+hand (Actions → GraphQL state → Run workflow): a fresh Mage-OS install on
+PHP 8.4 ZTS (the FrankenPHP build), MariaDB and OpenSearch services, then the companion and
 core state suites. Everything is installed with composer, as a store does:
-this module from the pull request, every `magenxcommerce/module-*` package
+this module from the branch it runs on, every `magenxcommerce/module-*` package
 (from Packagist once published, from its GitHub repository until then), and
 Stripe (`stripe/stripe-payments`) from the Magento Marketplace. It uses the
 organisation secrets `MAGENTO_PUBLIC_KEY`/`MAGENTO_PRIVATE_KEY` for
