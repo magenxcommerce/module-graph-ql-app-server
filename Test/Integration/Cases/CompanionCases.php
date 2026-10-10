@@ -96,7 +96,7 @@ class CompanionCases
                     query magenxStateBestSellers {
                         bestSellers(pageSize: 5) {
                             total_count
-                            items { rank qty_ordered product { sku } }
+                            items { rank product { sku } }
                         }
                     }
                     QUERY,

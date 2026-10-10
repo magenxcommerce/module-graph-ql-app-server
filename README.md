@@ -378,6 +378,11 @@ cd dev/tests/integration
 ../../../vendor/bin/phpunit -c phpunit.xml --testsuite "Magenx companion state"
 ```
 
+On Mage-OS, also copy `Test/Integration/_files/state-filter-list-mageos.php`
+into `dev/tests/integration/framework/Magento/TestFramework/ApplicationStateComparator/_files/`:
+it filters the plugin references Mage-OS's compiled interceptors cache and
+its Ignition error handler, which the core lists do not know about.
+
 Cases of a disabled module are skipped. For the gate, no case of a module
 you run may be skipped. `phpunit.xml.dist` in this module only runs
 `Test/Unit`, which checks the case catalogue without Magento.

@@ -7,6 +7,7 @@ declare(strict_types=1);
 namespace Magenx\AppServer\Test\Integration;
 
 use Magenx\AppServer\Test\Integration\Cases\CompanionCases;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Companion public reads: what the worker serves in its read-only phase.
@@ -33,9 +34,9 @@ class CompanionCatalogStateTest extends CompanionStateTestCase
      * @magentoConfigFixture default_store rma/general/enabled 1
      * @magentoConfigFixture default_store carriers/magenx_storepickup/active 1
      * @magentoConfigFixture default_store carriers/magenx_storepickup/locations {"s":{"code":"STATE-PICKUP","name":"Pickup","city":"Testville"}}
-     * @dataProvider catalogCases
      * @param array<string, mixed> $case
      */
+    #[DataProvider('catalogCases')]
     public function testCatalogState(array $case): void
     {
         $this->runCase($case);

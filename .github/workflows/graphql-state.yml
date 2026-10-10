@@ -217,6 +217,9 @@ jobs:
             file_put_contents("phpunit.xml", $xml);
           '
           php -r 'exit(simplexml_load_file("phpunit.xml") === false ? 1 : 0);'
+          # Mage-OS-only components the core state lists do not know about.
+          cp ../../../vendor/magenxcommerce/module-graph-ql-app-server/Test/Integration/_files/state-filter-list-mageos.php \
+            framework/Magento/TestFramework/ApplicationStateComparator/_files/
 
       - name: Companion state tests
         working-directory: ${{ env.MAGENTO_ROOT }}/dev/tests/integration

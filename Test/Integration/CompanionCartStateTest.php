@@ -7,6 +7,7 @@ declare(strict_types=1);
 namespace Magenx\AppServer\Test\Integration;
 
 use Magenx\AppServer\Test\Integration\Cases\CompanionCases;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Companion cart fields and cart mutations on customer A's cart.
@@ -33,9 +34,9 @@ class CompanionCartStateTest extends CompanionStateTestCase
      * @magentoConfigFixture default_store magenx_garan/garan/enabled 1
      * @magentoConfigFixture default_store carriers/magenx_storepickup/active 1
      * @magentoConfigFixture default_store carriers/magenx_storepickup/locations {"s":{"code":"STATE-PICKUP","name":"Pickup","city":"Testville"}}
-     * @dataProvider cartCases
      * @param array<string, mixed> $case
      */
+    #[DataProvider('cartCases')]
     public function testCartState(array $case): void
     {
         $this->runCase($case);
