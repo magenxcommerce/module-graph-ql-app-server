@@ -3,15 +3,19 @@ name: GraphQL state
 # Runs the request-state gate for the worker (README, "Verification gate"):
 # core GraphQlStateTest and friends plus this module's companion state tests
 # (Test/Integration), in Magento's integration test framework, on a fresh
-# Mage-OS install with every magenxcommerce module and Stripe enabled.
+# Mage-OS install with every magenxcommerce module and Stripe, all installed
+# with composer as a store installs them.
 #
 # Only the GraphQL area is under test: that is what the FrankenPHP worker
 # serves; admin stays on PHP-FPM. PHP is the thread-safe (ZTS) build, as in
 # the FrankenPHP image.
 #
-# Private module repos are cloned with the MAGENX_MODULES_TOKEN secret (a
-# token with read access to magenxcommerce repositories). Without it only
-# public modules are installed, and the cases of the missing ones are skipped.
+# Secrets (organisation secrets, as for the shared module CI):
+#  - MAGENTO_PUBLIC_KEY / MAGENTO_PRIVATE_KEY: repo.magento.com, for Stripe
+#    (stripe/stripe-payments from the Marketplace);
+#  - MAGENX_MODULES_TOKEN: read access to magenxcommerce repositories, for
+#    modules not on Packagist yet. A module already on Packagist is installed
+#    from there; the others from their GitHub repository.
 
 on:
   pull_request:
@@ -24,7 +28,7 @@ on:
         description: 'Mage-OS version (mage-os/project-community-edition)'
         default: '3.5.0'
       modules-ref:
-        description: 'Branch to take from each module repo when it exists (default branch otherwise)'
+        description: 'Branch to install from each module repo when it exists (latest release otherwise)'
         default: ''
 
 permissions:
@@ -38,7 +42,6 @@ env:
   MAGEOS_VERSION: ${{ inputs.mageos-version || '3.5.0' }}
   MODULES_REF: ${{ inputs.modules-ref || '' }}
   MAGENTO_ROOT: ${{ github.workspace }}/magento
-  STRIPE_TGZ: https://raw.githubusercontent.com/stripe/stripe-magento2-releases/master/stripe-magento2-latest.tgz
 
 jobs:
   state:
@@ -96,88 +99,84 @@ jobs:
           composer create-project --no-install --no-interaction \
             --repository-url=https://repo.mage-os.org/ \
             "mage-os/project-community-edition=$MAGEOS_VERSION" "$MAGENTO_ROOT"
-          composer --working-dir="$MAGENTO_ROOT" config repositories.mage-os composer https://repo.mage-os.org/
 
-      - name: Fetch Stripe
+      # COMPOSER_AUTH keeps the credentials in the masked environment
+      # instead of an auth.json a later step or artifact could carry out.
+      - name: Configure composer
+        working-directory: ${{ env.MAGENTO_ROOT }}
+        env:
+          MAGENTO_PUBLIC_KEY: ${{ secrets.MAGENTO_PUBLIC_KEY }}
+          MAGENTO_PRIVATE_KEY: ${{ secrets.MAGENTO_PRIVATE_KEY }}
+          GITHUB_COMPOSER_TOKEN: ${{ secrets.MAGENX_MODULES_TOKEN || github.token }}
         run: |
-          curl -fsSL "$STRIPE_TGZ" | tar -xz -C "$MAGENTO_ROOT"
-          ls "$MAGENTO_ROOT/app/code/StripeIntegration"
+          set -euo pipefail
+          auth=$(jq -cn --arg token "$GITHUB_COMPOSER_TOKEN" '{"github-oauth": {"github.com": $token}}')
+          if [ -n "$MAGENTO_PUBLIC_KEY" ] && [ -n "$MAGENTO_PRIVATE_KEY" ]; then
+            auth=$(jq -c --arg user "$MAGENTO_PUBLIC_KEY" --arg pass "$MAGENTO_PRIVATE_KEY" \
+              '. + {"http-basic": {"repo.magento.com": {"username": $user, "password": $pass}}}' <<<"$auth")
+            # Marketplace extensions only: Mage-OS provides the core packages
+            # (its mage-os/* packages replace magento/*), so Adobe's must not
+            # be picked from repo.magento.com.
+            composer config repositories.magento-marketplace \
+              '{"type": "composer", "url": "https://repo.magento.com/", "exclude": ["magento/*"]}'
+            echo "MARKETPLACE=1" >> "$GITHUB_ENV"
+          else
+            echo "::warning::MAGENTO_PUBLIC_KEY/MAGENTO_PRIVATE_KEY are not available: Stripe is not installed and its cases are skipped."
+          fi
+          echo "::add-mask::$auth"
+          echo "COMPOSER_AUTH=$auth" >> "$GITHUB_ENV"
 
-      # Discovered rather than listed, so a new module repo is tested without
-      # editing this file. The worker serves every enabled module's GraphQL.
-      - name: Fetch magenxcommerce modules
+          # This module from the pull request's checkout, copied like a dist install.
+          composer config repositories.app-server \
+            '{"type": "path", "url": "../module", "options": {"symlink": false}}'
+          # Modules without a release resolve to their default branch.
+          composer config minimum-stability dev
+          composer config prefer-stable true
+
+      # Discovered rather than listed, so a new module repository is tested
+      # without editing this file: the worker serves every enabled module.
+      - name: Require modules
+        working-directory: ${{ env.MAGENTO_ROOT }}
         env:
           GH_TOKEN: ${{ secrets.MAGENX_MODULES_TOKEN || github.token }}
-          MODULES_TOKEN: ${{ secrets.MAGENX_MODULES_TOKEN }}
-          GIT_TERMINAL_PROMPT: '0'
+          HAS_MODULES_TOKEN: ${{ secrets.MAGENX_MODULES_TOKEN != '' }}
         run: |
           set -euo pipefail
+          [ "$HAS_MODULES_TOKEN" = true ] || echo "::warning::MAGENX_MODULES_TOKEN is not set: modules that are private and not on Packagist are not installed, and their cases are skipped."
+
+          packages=('magenxcommerce/module-graph-ql-app-server:@dev')
+          [ "${MARKETPLACE:-0}" = 1 ] && packages+=('stripe/stripe-payments:*')
+
           repos=$(gh repo list magenxcommerce --limit 300 --no-archived --json name --jq '.[].name' \
             | grep '^module-' | grep -vx 'module-graph-ql-app-server' | sort)
-          echo "Module repositories visible: $(echo "$repos" | wc -l)"
-          [ -n "$MODULES_TOKEN" ] || echo "::warning::MAGENX_MODULES_TOKEN is not set: private modules are not installed and their cases are skipped."
-
-          auth=''
-          [ -n "$MODULES_TOKEN" ] && auth="x-access-token:${MODULES_TOKEN}@"
-          mkdir -p /tmp/modules
           for repo in $repos; do
-            url="https://${auth}github.com/magenxcommerce/${repo}.git"
-            if [ -n "$MODULES_REF" ] && git ls-remote --exit-code --heads "$url" "$MODULES_REF" >/dev/null 2>&1; then
-              git clone -q --depth 1 --branch "$MODULES_REF" "$url" "/tmp/modules/$repo"
-              echo "$repo @ $MODULES_REF"
-            elif git clone -q --depth 1 "$url" "/tmp/modules/$repo" 2>/dev/null; then
-              echo "$repo @ default branch"
-            else
-              echo "::warning::$repo could not be cloned; its cases are skipped."
+            name=$(gh api "repos/magenxcommerce/$repo/contents/composer.json" --jq '.content' 2>/dev/null \
+              | base64 -d 2>/dev/null | jq -r '.name // empty' || true)
+            if [ -z "$name" ]; then
+              echo "::warning::$repo: no readable composer.json; its cases are skipped."
+              continue
             fi
+            source=packagist
+            if ! curl -fsS -o /dev/null "https://repo.packagist.org/p2/$name.json"; then
+              # Not on Packagist yet: install from the repository itself.
+              composer config "repositories.$repo" vcs "https://github.com/magenxcommerce/$repo"
+              source=github
+            fi
+            constraint='*'
+            if [ -n "$MODULES_REF" ] && gh api "repos/magenxcommerce/$repo/branches/$MODULES_REF" >/dev/null 2>&1; then
+              constraint="dev-$MODULES_REF"
+            fi
+            packages+=("$name:$constraint")
+            echo "$name:$constraint ($source)"
           done
 
-          # Into app/code/<Vendor>/<Module>, named from registration.php.
-          install_module() {
-            local name
-            name=$(grep -oE "'[A-Za-z0-9]+_[A-Za-z0-9]+'" "$1/registration.php" | head -1 | tr -d "'")
-            [ -n "$name" ] || { echo "::warning::$1 has no module registration"; return; }
-            mkdir -p "$MAGENTO_ROOT/app/code/${name%%_*}/${name#*_}"
-            tar -C "$1" --exclude=.git --exclude=.github -cf - . | tar -xf - -C "$MAGENTO_ROOT/app/code/${name%%_*}/${name#*_}"
-            echo "  installed $name"
-          }
-          for dir in /tmp/modules/*/; do
-            [ -f "$dir/registration.php" ] && install_module "${dir%/}"
-          done
-          install_module "$GITHUB_WORKSPACE/module"
-
-      # Modules in app/code are not composer packages, so their third-party
-      # requires (and the Stripe PHP library) are added to the project.
-      - name: Add module dependencies
-        working-directory: ${{ env.MAGENTO_ROOT }}
-        run: |
-          set -euo pipefail
-          deps=$(php -r '
-            $deps = [];
-            foreach (glob("app/code/*/*/composer.json") as $file) {
-                $json = json_decode((string) file_get_contents($file), true) ?: [];
-                foreach ($json["require"] ?? [] as $package => $constraint) {
-                    if ($package === "php" || str_starts_with($package, "ext-") || !str_contains($package, "/")
-                        || preg_match("#^(magento|mage-os|magenxcommerce|stripe)/#", $package)) {
-                        continue;
-                    }
-                    $deps[$package] = $constraint;
-                }
-            }
-            foreach ($deps as $package => $constraint) {
-                echo $package, ":", $constraint, "\n";
-            }
-          ')
-          # The Stripe module checks the library version at runtime; its
-          # install docs pin the major it was built against.
-          stripe_php=$(grep -rhoE 'stripe/stripe-php:[~^][0-9.]+' app/code/StripeIntegration | head -1 | cut -d: -f2)
-          mapfile -t packages < <(printf '%s\n' "$deps" "stripe/stripe-php:${stripe_php:-^20.1}" | grep -v '^$')
-          printf '  %s\n' "${packages[@]}"
           composer require --no-update --no-interaction "${packages[@]}"
 
       - name: Install Mage-OS
         working-directory: ${{ env.MAGENTO_ROOT }}
-        run: composer install --no-interaction --no-progress
+        run: |
+          composer update --no-interaction --no-progress
+          composer show 'magenxcommerce/*' 'stripe/*' || true
 
       - name: Configure the integration test framework
         working-directory: ${{ env.MAGENTO_ROOT }}/dev/tests/integration
@@ -209,7 +208,7 @@ jobs:
             $suites = <<<XML
             <testsuites>
                     <testsuite name="Magenx companion state">
-                        <directory>../../../app/code/Magenx/AppServer/Test/Integration</directory>
+                        <directory>../../../vendor/magenxcommerce/module-graph-ql-app-server/Test/Integration</directory>
                     </testsuite>
                     <testsuite name="Core GraphQl state">
                         <file>testsuite/Magento/GraphQl/App/GraphQlStateTest.php</file>

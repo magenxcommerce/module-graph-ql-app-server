@@ -384,12 +384,17 @@ you run may be skipped. `phpunit.xml.dist` in this module only runs
 
 CI runs all of this in `.github/workflows/graphql-state.yml` (pull requests,
 nightly, and on demand): a fresh Mage-OS install on PHP 8.4 ZTS (the
-FrankenPHP build), MariaDB and OpenSearch services, the latest Stripe
-release, and every `magenxcommerce/module-*` repository, then the companion
-and core state suites. Private module repos need the `MAGENX_MODULES_TOKEN`
-secret (read access to the organisation's repositories); without it their
-cases are skipped. A manual run takes a Mage-OS version and a branch name to
-test across the module repos, e.g. a fix branch before it is merged.
+FrankenPHP build), MariaDB and OpenSearch services, then the companion and
+core state suites. Everything is installed with composer, as a store does:
+this module from the pull request, every `magenxcommerce/module-*` package
+(from Packagist once published, from its GitHub repository until then), and
+Stripe (`stripe/stripe-payments`) from the Magento Marketplace. It uses the
+organisation secrets `MAGENTO_PUBLIC_KEY`/`MAGENTO_PRIVATE_KEY` for
+repo.magento.com and `MAGENX_MODULES_TOKEN` for private module repositories;
+without them Stripe or those modules are not installed and their cases are
+skipped. A manual run takes a Mage-OS version and a branch name to install
+from every module repository that has it, e.g. a fix branch before it is
+merged.
 
 `reset.json` format: `{"Vendor\\Class": {"property": <reset value>}}`.
 Do not ship an empty `{}`: the core Resetter rejects it. This module's own
