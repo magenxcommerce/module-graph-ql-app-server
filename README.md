@@ -326,16 +326,61 @@ A worker logs a warning at boot while it is on.
 1. **State test with your modules enabled.** Run core
    `dev/tests/integration/testsuite/Magento/GraphQl/App/GraphQlStateTest.php`
    (plus `GraphQlCheckoutMutationsStateTest` and
-   `GraphQlCustomerMutationsTest`) with every Magenx module and
-   StripeIntegration enabled. Add cases for each module's own queries and
-   mutations. Every object that changes state across requests is a
-   potential cross-customer leak. Fix it with `_resetState()` in the owning
-   module, or with an `etc/reset.json` entry for code you cannot change.
+   `GraphQlCustomerMutationsTest`) and this module's companion state tests
+   (below) with every Magenx module and StripeIntegration enabled. Every
+   object that changes state across requests is a potential cross-customer
+   leak. Fix it with `_resetState()` in the owning module, or with an
+   `etc/reset.json` entry for code you cannot change.
 2. **Shadow comparison.** Replay real queries (guest, customer token,
    cart, checkout) against both backends in interleaved order and diff the
    responses.
 3. **Load test.** Compare p50/p95 with FPM, and watch memory per worker
    and recycle frequency.
+
+### Companion state tests
+
+`Test/Integration` runs every GraphQL operation of the Magenx companion
+modules the way core `GraphQlStateTest` runs core ones: each operation twice
+in one application, with the core `Comparator` failing on any shared object
+that changes state across the two requests or drifts from its constructed
+state. It covers what the worker refuses today, so a green run is the
+precondition for serving customer tokens and mutations:
+
+| Test | Operations |
+|---|---|
+| `CompanionCatalogStateTest` | public reads: best sellers, blog, deals, GARAN, GDPR cookie groups, quick search, pickup locations, help desk and RMA metadata, every `ProductInterface` extension |
+| `CompanionCustomerStateTest` | private reads (reward points, product alerts, Stripe subscriptions, GDPR requests and export, help desk tickets, returns, order fields) and every non-cart mutation |
+| `CompanionCartStateTest` | cart fields (GARAN, Stripe, reward, pickup) and cart mutations (reward points, pickup location) |
+| `CompanionSchemaCoverageTest` | fails when a companion resolver has no case, a case no longer matches the schema, or a core state skip/filter list names a `Magenx\` class |
+
+Private cases run customer A, then customer B or a guest. A's data is seeded
+with the marker `STATE-LEAK-A`, and the second response must not contain it.
+Each pair also runs entirely under the core `Resetter`, with every module's
+`reset.json` applied, as in the worker.
+
+The cases live in `Test/Integration/Cases/CompanionCases.php`; add one there
+for every new query, mutation or field (the coverage test names what is
+missing). Never add a companion class to a core state skip list to get green:
+that hides the leak from the test, not from the worker.
+
+Run from the Magento root, against an integration test database
+(`dev/tests/integration/etc/install-config-mysql.php`) with all companion
+modules installed. Add a suite to `dev/tests/integration/phpunit.xml`:
+
+```xml
+<testsuite name="Magenx companion state">
+    <directory>../../../vendor/magenxcommerce/module-graph-ql-app-server/Test/Integration</directory>
+</testsuite>
+```
+
+```bash
+cd dev/tests/integration
+../../../vendor/bin/phpunit -c phpunit.xml --testsuite "Magenx companion state"
+```
+
+Cases of a disabled module are skipped. For the gate, no case of a module
+you run may be skipped. `phpunit.xml.dist` in this module only runs
+`Test/Unit`, which checks the case catalogue without Magento.
 
 `reset.json` format: `{"Vendor\\Class": {"property": <reset value>}}`.
 Do not ship an empty `{}`: the core Resetter rejects it. This module's own

@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<!--
+    Unit tests for this module. They need no Magento installation, so the
+    shared module CI (magenxcommerce/workflows) runs them on every pull request.
+
+    Test/Integration holds the companion GraphQL state tests. Those run inside
+    Magento's integration test framework (dev/tests/integration) with every
+    companion module enabled, not from this file: see README, "Verification gate".
+-->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/10.5/phpunit.xsd"
+         bootstrap="Test/bootstrap.php"
+         colors="true"
+         beStrictAboutOutputDuringTests="true"
+         failOnWarning="true"
+         cacheDirectory=".phpunit.cache">
+    <testsuites>
+        <testsuite name="Unit">
+            <directory>Test/Unit</directory>
+        </testsuite>
+    </testsuites>
+</phpunit>

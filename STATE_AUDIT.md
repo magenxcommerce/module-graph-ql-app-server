@@ -23,7 +23,10 @@ none of these were bugs before.
   Packagist.
 - Core classes beyond the ones named below.
 - Runtime behaviour. The authoritative check is still `GraphQlStateTest`
-  with every module enabled.
+  with every module enabled, plus this module's companion state tests
+  (`Test/Integration`, see README "Companion state tests"), which run every
+  companion query and mutation, guest and customer, through the same
+  comparator.
 
 ## What applies to the read-only phase
 
