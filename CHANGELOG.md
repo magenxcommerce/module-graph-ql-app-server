@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/magenxcommerce/module-graph-ql-app-server/compare/v1.1.0...v1.1.1) (2026-10-10)
+
+
+### Bug Fixes
+
+* Add companion GraphQL state tests for worker request isolation ([#11](https://github.com/magenxcommerce/module-graph-ql-app-server/issues/11)) ([9304a9c](https://github.com/magenxcommerce/module-graph-ql-app-server/commit/9304a9cbf02a32b64c78f4769ab3042b0e026a12))
+
 ## [1.1.0](https://github.com/magenxcommerce/module-graph-ql-app-server/compare/v1.0.3...v1.1.0) (2026-10-10)
 
 
