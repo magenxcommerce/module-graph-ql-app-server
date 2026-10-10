@@ -84,5 +84,18 @@
     },
     "StripeIntegration\\Payments\\Plugin\\Sales\\Model\\Service\\OrderService": {
         "helper": null
+    },
+    "Magento\\Catalog\\Helper\\Image": {
+        "_model": null,
+        "_scheduleRotate": false,
+        "_angle": null,
+        "_watermark": null,
+        "_watermarkPosition": null,
+        "_watermarkSize": null,
+        "_watermarkImageOpacity": null,
+        "_product": null,
+        "_imageFile": null,
+        "attributes": [],
+        "configView": null
     }
 }

@@ -23,6 +23,10 @@
  *   entry as left behind. (In the worker it holds one entry per allowlisted
  *   query text.)
  *
+ * - View\Config::$viewConfigs and Config\View::$data: each theme's parsed
+ *   view.xml, the same for every request (the catalog image helper reads
+ *   them, e.g. for the return email's product thumbnail).
+ *
  * Classes that are not installed never match. No Magenx\ class belongs here
  * (CompanionSchemaCoverageTest fails on one): fix those with _resetState() or
  * etc/reset.json instead.
@@ -35,6 +39,8 @@ return [
     'parents' => [
         'Magento\Framework\Model\ResourceModel\Db\AbstractDb' => ['_uniqueFields' => null],
         'Magento\Framework\GraphQl\Query\QueryParser' => ['parsedQueries' => null],
+        'Magento\Framework\View\Config' => ['viewConfigs' => null],
+        'Magento\Framework\Config\View' => ['data' => null],
         'StripeIntegration\Payments\Model\InitialFee' => [
             '_code' => null,
             'initialFeeHelper' => null,

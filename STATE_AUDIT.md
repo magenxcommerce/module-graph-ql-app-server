@@ -206,7 +206,10 @@ stale and growing, and it keeps whole order models alive). Reset here,
 with `Sales\Model\Order\ShipmentRepository::$registry` (every shipment it
 loaded or saved, kept whole) and the core `TransportBuilder::$message` (the
 last email built, recipients and body included; #3 covered only the
-message data). Stripe's `StateResolver` and `OrderService` plugins also
+message data). The return email (`module-rma` `Email\Sender`) runs the shared core
+`Catalog\Helper\Image`, which keeps the last product and the theme's view
+config it rendered; reset here as `Image::_reset()` does, plus
+`$configView`. Stripe's `StateResolver` and `OrderService` plugins also
 keep the last order state and a lazily built helper; reset as well.
 
 Still to check on the install:

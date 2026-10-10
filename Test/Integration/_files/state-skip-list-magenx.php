@@ -8,9 +8,9 @@
  *   the object manager builds only when an area's DI config misses the
  *   cache, e.g. after a fixture or seed cleaned it. It reads XML files and
  *   holds no request state.
- * - mergeCarts (core GraphQlCustomerMutationsTest): Stripe's quote
- *   BeforeSave plugin is first built when the merged cart is saved, in the
- *   second request. It holds only its injected dependency.
+ * - Every operation: Stripe's quote BeforeSave plugin, first built when a
+ *   quote is saved, which can be in the second request (mergeCarts,
+ *   placeOrder). It holds only its injected dependency.
  *
  * No Magenx\ class belongs here (CompanionSchemaCoverageTest fails on one).
  *
@@ -22,8 +22,6 @@ return [
     '*' => [
         'Magento\Framework\ObjectManager\Config\SchemaLocator' => null,
         'Magento\Framework\ObjectManager\Config\Reader\Dom' => null,
-    ],
-    'mergeCarts' => [
         'StripeIntegration\Payments\Plugin\Quote\BeforeSave' => null,
     ],
 ];
