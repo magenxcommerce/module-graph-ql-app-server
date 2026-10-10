@@ -55,10 +55,43 @@ class CompanionCases
     /** Order of customer A, from Magento/Sales/_files/order_with_customer.php. */
     public const ORDER_NUMBER = '100000001';
 
-    /** Pickup location set by the config fixtures of the catalog and cart tests. */
+    /** Pickup location set by CONFIG. */
     public const PICKUP_CODE = 'STATE-PICKUP';
 
     public const SOCIAL_LOGIN_SECRET = 'state-test-secret';
+
+    /**
+     * Settings the cases need, as [scope, scope id, path, value], written to
+     * core_config_data by _files/companion_config.php.
+     *
+     * Not @magentoConfigFixture: those overrides live on the test framework's
+     * own config object, and StateDiff's object manager builds a fresh one,
+     * so the requests under test never saw them.
+     */
+    public const CONFIG = [
+        ['websites', 1, 'magenx_reward/general/enabled', '1'],
+        ['websites', 1, 'magenx_reward/redemption/rate', '0.01'],
+        ['stores', 1, 'magenx_price_history/general/enabled', '1'],
+        ['stores', 1, 'magenx_garan/general/enabled', '1'],
+        ['stores', 1, 'magenx_garan/garan/enabled', '1'],
+        ['stores', 1, 'magenx_product_attachments/general/enabled', '1'],
+        ['stores', 1, 'magenx_helpdesk/general/enabled', '1'],
+        ['stores', 1, 'magenx_helpdesk/customer_account/enabled', '1'],
+        ['stores', 1, 'magenx_helpdesk/guest/enabled', '1'],
+        ['stores', 1, 'rma/general/enabled', '1'],
+        ['stores', 1, 'rma/policy/allowed_order_statuses', 'processing,complete'],
+        ['stores', 1, 'rma/withdrawal/enabled', '1'],
+        ['stores', 1, 'catalog/productalert/allow_price', '1'],
+        ['stores', 1, 'catalog/productalert/allow_stock', '1'],
+        ['stores', 1, 'carriers/magenx_storepickup/active', '1'],
+        [
+            'stores',
+            1,
+            'carriers/magenx_storepickup/locations',
+            '{"s":{"code":"' . self::PICKUP_CODE . '","name":"Pickup","city":"Testville"}}',
+        ],
+        ['stores', 1, 'magenx_social_login/general/shared_secret', self::SOCIAL_LOGIN_SECRET],
+    ];
 
     /**
      * Seeds a case may name, with the placeholders each one provides.

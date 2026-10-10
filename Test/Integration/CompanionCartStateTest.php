@@ -28,12 +28,7 @@ class CompanionCartStateTest extends CompanionStateTestCase
      * @magentoDataFixture Magento/GraphQl/Catalog/_files/simple_product.php
      * @magentoDataFixture Magento/GraphQl/Quote/_files/customer/create_empty_cart.php
      * @magentoDataFixture Magento/GraphQl/Quote/_files/add_simple_product.php
-     * @magentoConfigFixture base_website magenx_reward/general/enabled 1
-     * @magentoConfigFixture base_website magenx_reward/redemption/rate 0.01
-     * @magentoConfigFixture default_store magenx_garan/general/enabled 1
-     * @magentoConfigFixture default_store magenx_garan/garan/enabled 1
-     * @magentoConfigFixture default_store carriers/magenx_storepickup/active 1
-     * @magentoConfigFixture default_store carriers/magenx_storepickup/locations {"s":{"code":"STATE-PICKUP","name":"Pickup","city":"Testville"}}
+     * @magentoDataFixture Magenx_AppServer::Test/Integration/_files/companion_config.php
      * @param array<string, mixed> $case
      */
     #[DataProvider('cartCases')]

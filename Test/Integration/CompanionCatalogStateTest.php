@@ -12,8 +12,9 @@ use PHPUnit\Framework\Attributes\DataProvider;
 /**
  * Companion public reads: what the worker serves in its read-only phase.
  *
- * Config fixtures switch every module on, so the read paths with per-request
- * caches (deals, price history, GARAN prefetch, pickup locations) run.
+ * _files/companion_config.php switches every module on, so the read paths
+ * with per-request caches (deals, price history, GARAN prefetch, pickup
+ * locations) run.
  *
  * @magentoDbIsolation disabled
  * @magentoAppIsolation enabled
@@ -25,15 +26,7 @@ class CompanionCatalogStateTest extends CompanionStateTestCase
      * @magentoDataFixture Magento/Catalog/_files/product_simple.php
      * @magentoDataFixture Magento/Customer/_files/customer.php
      * @magentoDataFixture Magenx_AppServer::Test/Integration/_files/blog_posts.php
-     * @magentoConfigFixture default_store magenx_price_history/general/enabled 1
-     * @magentoConfigFixture default_store magenx_garan/general/enabled 1
-     * @magentoConfigFixture default_store magenx_garan/garan/enabled 1
-     * @magentoConfigFixture default_store magenx_product_attachments/general/enabled 1
-     * @magentoConfigFixture default_store magenx_helpdesk/general/enabled 1
-     * @magentoConfigFixture default_store magenx_helpdesk/guest/enabled 1
-     * @magentoConfigFixture default_store rma/general/enabled 1
-     * @magentoConfigFixture default_store carriers/magenx_storepickup/active 1
-     * @magentoConfigFixture default_store carriers/magenx_storepickup/locations {"s":{"code":"STATE-PICKUP","name":"Pickup","city":"Testville"}}
+     * @magentoDataFixture Magenx_AppServer::Test/Integration/_files/companion_config.php
      * @param array<string, mixed> $case
      */
     #[DataProvider('catalogCases')]

@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<!--
+/**
+ * Copyright © Magenx. All rights reserved.
+ */
+-->
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:ObjectManager/etc/config.xsd">
+    <!-- The worker serves only the graphql area. See the plugin class. -->
+    <type name="Magento\Quote\Model\Quote\Address\Total\Collector">
+        <plugin name="magenx_app_server_restore_total_codes"
+                type="Magenx\AppServer\Plugin\Quote\RestoreTotalCodes"/>
+    </type>
+</config>
