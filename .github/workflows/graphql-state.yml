@@ -18,10 +18,6 @@ name: GraphQL state
 #    from there; the others from their GitHub repository.
 
 on:
-  pull_request:
-  schedule:
-    # Nightly: the companion modules change in their own repos.
-    - cron: '17 2 * * *'
   workflow_dispatch:
     inputs:
       mageos-version:
