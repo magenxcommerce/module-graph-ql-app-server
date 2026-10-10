@@ -379,7 +379,8 @@ cd dev/tests/integration
 ```
 
 Cases of a disabled module are skipped. For the gate, no case of a module
-you run may be skipped.
+you run may be skipped. `phpunit.xml.dist` in this module only runs
+`Test/Unit`, which checks the case catalogue without Magento.
 
 CI runs all of this in `.github/workflows/graphql-state.yml` (pull requests,
 nightly, and on demand): a fresh Mage-OS install on PHP 8.4 ZTS (the
@@ -388,8 +389,7 @@ release, and every `magenxcommerce/module-*` repository, then the companion
 and core state suites. Private module repos need the `MAGENX_MODULES_TOKEN`
 secret (read access to the organisation's repositories); without it their
 cases are skipped. A manual run takes a Mage-OS version and a branch name to
-test across the module repos, e.g. a fix branch before it is merged. `phpunit.xml.dist` in this module only runs
-`Test/Unit`, which checks the case catalogue without Magento.
+test across the module repos, e.g. a fix branch before it is merged.
 
 `reset.json` format: `{"Vendor\\Class": {"property": <reset value>}}`.
 Do not ship an empty `{}`: the core Resetter rejects it. This module's own
