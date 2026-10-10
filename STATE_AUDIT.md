@@ -202,7 +202,12 @@ The same runs flagged core order loading, which also keeps state:
 last order it built shipping for, kept whole) and
 `SalesGraphQl\Model\OrderItem\DataProvider`'s order item cache (no
 cross-customer read, since the order resolver checks ownership first, but
-stale and growing, and it keeps whole order models alive). Reset here.
+stale and growing, and it keeps whole order models alive). Reset here,
+with `Sales\Model\Order\ShipmentRepository::$registry` (every shipment it
+loaded or saved, kept whole) and the core `TransportBuilder::$message` (the
+last email built, recipients and body included; #3 covered only the
+message data). Stripe's `StateResolver` and `OrderService` plugins also
+keep the last order state and a lazily built helper; reset as well.
 
 Still to check on the install:
 - The rest of Stripe's `Model/` classes:

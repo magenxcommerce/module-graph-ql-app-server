@@ -3,7 +3,8 @@
         "messageData": [],
         "templateIdentifier": null,
         "templateVars": null,
-        "templateOptions": null
+        "templateOptions": null,
+        "message": null
     },
     "StripeIntegration\\Payments\\Helper\\Generic": {
         "magentoCustomerId": null,
@@ -74,5 +75,14 @@
     },
     "Magenx\\AutoProductLinks\\Model\\Link\\LinkTypeResolver": {
         "boughtTogetherId": null
+    },
+    "Magento\\Sales\\Model\\Order\\ShipmentRepository": {
+        "registry": []
+    },
+    "StripeIntegration\\Payments\\Plugin\\Sales\\Model\\Order\\StateResolver": {
+        "previousState": null
+    },
+    "StripeIntegration\\Payments\\Plugin\\Sales\\Model\\Service\\OrderService": {
+        "helper": null
     }
 }
