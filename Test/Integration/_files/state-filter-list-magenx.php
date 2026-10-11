@@ -11,6 +11,23 @@
  *   plugin, so Plugin\Quote\RestoreTotalCodes puts it back from the collector
  *   on the next use instead. The comparator looks between requests, when the
  *   code is still empty.
+ * - Stripe InitialFee's lazily built helper, and its subscriptions setting,
+ *   read once per process. Both are totals' private state that reset.json
+ *   cannot reach (the class has its own _resetState()); the setting is
+ *   stale until the worker recycles (STATE_AUDIT.md).
+ *
+ * - QueryParser::$parsedQueries: the parsed document per query text, the
+ *   same for every customer. Core counts it from the first measured request
+ *   on (the parser is usually built there); a seed or token warm-up request
+ *   builds it earlier, and the comparator then reports the measured query's
+ *   entry as left behind. (In the worker it holds one entry per allowlisted
+ *   query text.)
+ *
+ * - View\Config::$viewConfigs and Config\View::$data: each theme's parsed
+ *   view.xml, the same for every request (the catalog image helper reads
+ *   them, e.g. for the return email's product thumbnail).
+ * - Theme\FlyweightFactory::$themes and $themesByPath: theme models by id and
+ *   path, loaded on first use (e.g. by the first email a worker renders).
  *
  * Classes that are not installed never match. No Magenx\ class belongs here
  * (CompanionSchemaCoverageTest fails on one): fix those with _resetState() or
@@ -23,7 +40,15 @@ declare(strict_types=1);
 return [
     'parents' => [
         'Magento\Framework\Model\ResourceModel\Db\AbstractDb' => ['_uniqueFields' => null],
-        'StripeIntegration\Payments\Model\InitialFee' => ['_code' => null],
+        'Magento\Framework\GraphQl\Query\QueryParser' => ['parsedQueries' => null],
+        'Magento\Framework\View\Config' => ['viewConfigs' => null],
+        'Magento\Framework\Config\View' => ['data' => null],
+        'Magento\Framework\View\Design\Theme\FlyweightFactory' => ['themes' => null, 'themesByPath' => null],
+        'StripeIntegration\Payments\Model\InitialFee' => [
+            '_code' => null,
+            'initialFeeHelper' => null,
+            'isSubscriptionsEnabled' => null,
+        ],
         'StripeIntegration\Tax\Model\Quote\Total\StripeFlatFees' => ['_code' => null],
     ],
 ];

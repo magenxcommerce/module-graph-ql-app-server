@@ -143,8 +143,22 @@ jobs:
           packages=('magenxcommerce/module-graph-ql-app-server:@dev')
           [ "${MARKETPLACE:-0}" = 1 ] && packages+=('stripe/stripe-payments:*')
 
-          repos=$(gh repo list magenxcommerce --limit 300 --no-archived --json name --jq '.[].name' \
-            | grep '^module-' | grep -vx 'module-graph-ql-app-server' | sort)
+          # REST, type=all: every repository the token can read, private ones
+          # included. (gh repo list returned only the public ones here.)
+          listing=$(gh api --paginate 'orgs/magenxcommerce/repos?type=all&per_page=100' \
+            --jq '.[] | select(.archived | not) | select(.name | startswith("module-")) | "\(.name) \(.visibility)"' \
+            | grep -v '^module-graph-ql-app-server ' | sort)
+          repos=$(cut -d' ' -f1 <<<"$listing")
+          echo "Module repositories: $(wc -l <<<"$listing"), private: $(grep -c ' private$' <<<"$listing" || true)"
+          if [ "$HAS_MODULES_TOKEN" = true ] && ! grep -q ' private$' <<<"$listing"; then
+            echo "::warning::MAGENX_MODULES_TOKEN lists no private module repository: private modules are not installed, and their cases are skipped."
+            # What the token is, without printing it: its type prefix (ghp_ classic,
+            # github_pat_ fine-grained, ghs_ app), its account, and whether it
+            # can read one private module directly. A repository secret of the
+            # same name overrides the organisation secret.
+            echo "Token type: ${GH_TOKEN:0:4}..., account: $(gh api user --jq .login 2>/dev/null || echo 'n/a (not a user token)')"
+            echo "repos/magenxcommerce/module-reward: HTTP $(gh api -i repos/magenxcommerce/module-reward 2>/dev/null | head -1 | awk '{print $2}' || true)"
+          fi
           for repo in $repos; do
             name=$(gh api "repos/magenxcommerce/$repo/contents/composer.json" --jq '.content' 2>/dev/null \
               | base64 -d 2>/dev/null | jq -r '.name // empty' || true)
@@ -217,34 +231,63 @@ jobs:
             file_put_contents("phpunit.xml", $xml);
           '
           php -r 'exit(simplexml_load_file("phpunit.xml") === false ? 1 : 0);'
-          # Filter lists the core comparator does not ship: Mage-OS-only
-          # components, and properties of this stack that carry no request state.
-          cp ../../../vendor/magenxcommerce/module-graph-ql-app-server/Test/Integration/_files/state-filter-list-*.php \
+          # Filter and skip lists the core comparator does not ship: Mage-OS-only
+          # components, and state of this stack that is not request state.
+          cp ../../../vendor/magenxcommerce/module-graph-ql-app-server/Test/Integration/_files/state-{filter,skip}-list-*.php \
             framework/Magento/TestFramework/ApplicationStateComparator/_files/
 
-      # Both suites: memory_limit caps PHP well below the runner's RAM, so a
-      # leak fails as a PHP fatal naming the test instead of the runner
-      # being shut down; the verbose event log streams each test's start, end,
-      # elapsed time and memory into the job log as it happens.
+      # The state comparator keeps every test's object graph until PHP exits
+      # (core GraphQlStateTest too), about 200 MB a test, so one process
+      # for a whole suite outgrows the runner. Each suite therefore runs in
+      # several PHPUnit processes of a dozen tests or so, each capped at 4G:
+      # a leak fails as a PHP fatal naming the test, not as a runner shutdown.
+      # The verbose event log streams each test's start, end, time and
+      # memory into the job log. A failing process does not stop the others;
+      # the step fails at the end.
       - name: Companion state tests
         working-directory: ${{ env.MAGENTO_ROOT }}/dev/tests/integration
-        run: >-
-          php -d memory_limit=4G ../../../vendor/bin/phpunit -c phpunit.xml
-          --testsuite "Magenx companion state"
-          --log-junit "$RUNNER_TEMP/companion-state.xml"
-          --log-events-verbose-text php://stdout
-          --display-skipped
+        env:
+          # Processes for the cases (CompanionCases::SLICE_ENV). At most the
+          # smallest case group (8 cart cases), or a slice gets no cart case.
+          SLICES: 6
+        run: |
+          set -uo pipefail
+          phpunit() {
+            php -d memory_limit=4G ../../../vendor/bin/phpunit -c phpunit.xml \
+              --testsuite "Magenx companion state" --display-skipped \
+              --log-events-verbose-text php://stdout "$@"
+          }
+          status=0
+          # The first process installs the test database (TESTS_CLEANUP);
+          # the rest, and the core step, reuse it.
+          phpunit --filter CompanionSchemaCoverageTest --log-junit "$RUNNER_TEMP/companion-coverage.xml" || status=1
+          sed -i 's/name="TESTS_CLEANUP" value="enabled"/name="TESTS_CLEANUP" value="disabled"/' phpunit.xml
+          for slice in $(seq 1 "$SLICES"); do
+            echo "=== Companion state cases, slice $slice/$SLICES ==="
+            MAGENX_STATE_SLICE="$slice/$SLICES" phpunit --filter StateTest \
+              --log-junit "$RUNNER_TEMP/companion-state-$slice.xml" || status=1
+          done
+          exit "$status"
 
       - name: Core GraphQL state tests
         if: ${{ !cancelled() }}
         working-directory: ${{ env.MAGENTO_ROOT }}/dev/tests/integration
-        # Reuse the test install of the previous step instead of reinstalling.
-        run: >-
-          sed -i 's/name="TESTS_CLEANUP" value="enabled"/name="TESTS_CLEANUP" value="disabled"/' phpunit.xml &&
-          php -d memory_limit=4G ../../../vendor/bin/phpunit -c phpunit.xml
-          --testsuite "Core GraphQl state"
-          --log-junit "$RUNNER_TEMP/core-state.xml"
-          --log-events-verbose-text php://stdout
+        run: |
+          set -uo pipefail
+          sed -i 's/name="TESTS_CLEANUP" value="enabled"/name="TESTS_CLEANUP" value="disabled"/' phpunit.xml
+          status=0
+          part=0
+          # PHPUnit --filter patterns, one process each. The 12 checkout tests
+          # in one process peak near 4G, so they are split.
+          for filter in 'GraphQlStateTest::' 'GraphQlCustomerMutationsTest::' \
+            'GraphQlCheckoutMutationsStateTest::test(Create|Add)' 'GraphQlCheckoutMutationsStateTest::test(Set|Place)'; do
+            echo "=== $filter ==="
+            php -d memory_limit=4G ../../../vendor/bin/phpunit -c phpunit.xml \
+              --testsuite "Core GraphQl state" --filter "$filter" \
+              --log-junit "$RUNNER_TEMP/core-$((++part)).xml" \
+              --log-events-verbose-text php://stdout || status=1
+          done
+          exit "$status"
 
       # etc/reset.json against the installed Stripe and core: a renamed
       # property or changed default would make an entry silently wrong.

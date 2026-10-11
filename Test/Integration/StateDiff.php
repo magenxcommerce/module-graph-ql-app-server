@@ -30,10 +30,12 @@ use PHPUnit\Framework\TestCase;
  *    can be checked for substrings it must not contain (another customer's
  *    data);
  *  - GraphQL errors fail the case unless it allows them;
- *  - both requests' tokens are issued before the first measured request,
- *    so only the requests themselves are compared, as a worker would serve
- *    them (a token issued between them would put the whole login stack
- *    inside the window of a guest-then-customer case);
+ *  - both requests' tokens are issued, and each used once in an unmeasured
+ *    warm-up request, before the first measured request, so only the
+ *    requests themselves are compared, as a warm worker would serve them
+ *    (otherwise a guest-then-customer pair counts the login and token
+ *    validation services, built on first use, as state the first request
+ *    left behind);
  *  - execute() runs an unmeasured request, to seed data through the public API.
  *
  * Every object the test object manager builds is registered with the core
@@ -44,6 +46,9 @@ use PHPUnit\Framework\TestCase;
 class StateDiff
 {
     private const CONTENT_TYPE = 'application/json';
+
+    /** Unmeasured request that builds the token validation services. */
+    private const WARM_UP_QUERY = 'query magenxStateWarmUp { customer { email } }';
 
     private readonly ObjectManagerInterface $objectManagerBeforeTest;
     private readonly ObjectManager $objectManagerForTest;
@@ -98,6 +103,9 @@ class StateDiff
 
         $token1 = $auth1 === null ? null : $this->issueToken($auth1);
         $token2 = $auth2 === null ? null : $this->issueToken($auth2);
+        foreach (array_unique(array_filter([$token1, $token2])) as $token) {
+            $this->execute(self::WARM_UP_QUERY, [], null, $token);
+        }
 
         $output1 = $this->measuredRequest($case['query'], $variables, $operationName, $token1, $test, true);
         $this->assertResponse($test, $output1, (array) $expected1, [], $errorsAllowed, 'first request');
@@ -120,11 +128,16 @@ class StateDiff
      *
      * @param array<string, mixed> $variables
      * @param array{email: string, password: string}|null $credentials
+     * @param string|null $token a token already issued, instead of credentials
      * @return array<string, mixed> the decoded response
      */
-    public function execute(string $query, array $variables = [], ?array $credentials = null): array
-    {
-        $token = $credentials === null ? null : $this->issueToken($credentials);
+    public function execute(
+        string $query,
+        array $variables = [],
+        ?array $credentials = null,
+        ?string $token = null
+    ): array {
+        $token ??= $credentials === null ? null : $this->issueToken($credentials);
         $this->objectManagerForTest->_resetState();
         $output = $this->dispatch($query, $variables, self::operationName($query), $token);
         $this->objectManagerForTest->_resetState();

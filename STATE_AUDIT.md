@@ -61,23 +61,29 @@ collector was built for is still kept, so that part of the fix is open.
 
 ## Fix status
 
-Fixes for #1, #2 and every "should fix" row below are pushed to branch
-`claude/peaceful-brown-7sjyjd` in each module repo. They are not merged yet:
-module CI runs on pull requests, and release-please releases from `main`.
+The module fixes for #1, #2 and every "should fix" row below are merged and
+released. The state tests install these releases (or newer) and pass:
 
-| Repo | Commit |
+| Repo | Release with the fix |
 |---|---|
-| `module-reward` | `5faddda` |
-| `module-garan-graph-ql` | `853d91d` |
-| `module-deal-graph-ql` | `dfaa107` |
-| `module-price-history-graph-ql` | `5938474` |
-| `module-helpdesk-graph-ql` | `686791d` |
-| `module-helpdesk` | `41d496a` |
-| `module-rma` | `9417711` |
-| `module-store-pickup-graph-ql` | `31196ad` |
+| `module-reward` | latest release (private repo; covered by the reward state cases) |
+| `module-garan-graph-ql` | `v1.0.3` |
+| `module-deal-graph-ql` | `v1.0.5` |
+| `module-price-history-graph-ql` | `v1.0.2` |
+| `module-helpdesk-graph-ql` | `v1.1.2` |
+| `module-helpdesk` | `v1.2.1` |
+| `module-rma` | `v1.1.2` |
+| `module-store-pickup-graph-ql` | `v1.0.3` |
 
 #3 and #4 are mitigated in this module's `etc/reset.json`. The rest of the
 Stripe core module still needs the check described under #4.
+
+Two Magenx memos are still reset from this module's `etc/reset.json`:
+`Magenx\BestSellerGraphQl\Model\BestSellerProvider::$tableCache` and
+`Magenx\AutoProductLinks\Model\Link\LinkTypeResolver::$boughtTogetherId`.
+Both modules get their own `_resetState()`. Once those releases ship, drop
+the two entries: the Resetter ignores `reset.json` for a class with its own
+`_resetState()`, and `bin/check-reset-json.php` fails on such entries.
 
 ## Must fix before worker traffic
 
@@ -192,13 +198,33 @@ The companion and core state tests then flagged more of Stripe's
   total code only in the constructor, so core `AbstractTotal::_resetState()`
   leaves them without one (same as #1). `reset.json` cannot help: the
   Resetter skips it for classes with their own `_resetState()`. Mitigated
-  by `RestoreTotalCodes`, above.
+  by `RestoreTotalCodes`, above. `InitialFee` also reads the subscriptions
+  setting once per process (`$isSubscriptionsEnabled`), for the first
+  store it sees. That is still open; the state tests filter it until it
+  is reset.
 
 The same runs flagged core order loading, which also keeps state:
-`Sales\Model\Order\ShippingAssignmentBuilder::$orderId` and
+`Sales\Model\Order\ShippingAssignmentBuilder::$orderId` and `$order` (the
+last order it built shipping for, kept whole) and
 `SalesGraphQl\Model\OrderItem\DataProvider`'s order item cache (no
 cross-customer read, since the order resolver checks ownership first, but
-stale and growing, and it keeps whole order models alive). Reset here.
+stale and growing, and it keeps whole order models alive). Reset here,
+with `Sales\Model\Order\ShipmentRepository::$registry` (every shipment it
+loaded or saved, kept whole) and the core `TransportBuilder::$message` (the
+last email built, recipients and body included; #3 covered only the
+message data). Helpdesk notifications (`module-helpdesk` `TicketNotifier`) wrap each email
+in the core inline-translation `suspend()`/`resume()`, and the template's
+design emulation (core `App\Emulation`) suspends and resumes again inside
+that pair. The inner `resume()` clears the stored status, so the outer one
+sets `Translate\Inline\State::$isEnabled` to `null`, which then lasts for
+the rest of the worker. Any email sent that way does it (core's contact
+form too). Reset here to the class defaults.
+
+The return email (`module-rma` `Email\Sender`) runs the shared core
+`Catalog\Helper\Image`, which keeps the last product and the theme's view
+config it rendered; reset here as `Image::_reset()` does, plus
+`$configView`. Stripe's `StateResolver` and `OrderService` plugins also
+keep the last order state and a lazily built helper; reset as well.
 
 Still to check on the install:
 - The rest of Stripe's `Model/` classes:

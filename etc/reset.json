@@ -3,7 +3,8 @@
         "messageData": [],
         "templateIdentifier": null,
         "templateVars": null,
-        "templateOptions": null
+        "templateOptions": null,
+        "message": null
     },
     "StripeIntegration\\Payments\\Helper\\Generic": {
         "magentoCustomerId": null,
@@ -62,7 +63,8 @@
         "isSubscriptionsEnabled": null
     },
     "Magento\\Sales\\Model\\Order\\ShippingAssignmentBuilder": {
-        "orderId": null
+        "orderId": null,
+        "order": null
     },
     "Magento\\SalesGraphQl\\Model\\OrderItem\\DataProvider": {
         "orderItemIds": [],
@@ -73,5 +75,31 @@
     },
     "Magenx\\AutoProductLinks\\Model\\Link\\LinkTypeResolver": {
         "boughtTogetherId": null
+    },
+    "Magento\\Sales\\Model\\Order\\ShipmentRepository": {
+        "registry": []
+    },
+    "StripeIntegration\\Payments\\Plugin\\Sales\\Model\\Order\\StateResolver": {
+        "previousState": null
+    },
+    "StripeIntegration\\Payments\\Plugin\\Sales\\Model\\Service\\OrderService": {
+        "helper": null
+    },
+    "Magento\\Catalog\\Helper\\Image": {
+        "_model": null,
+        "_scheduleRotate": false,
+        "_angle": null,
+        "_watermark": null,
+        "_watermarkPosition": null,
+        "_watermarkSize": null,
+        "_watermarkImageOpacity": null,
+        "_product": null,
+        "_imageFile": null,
+        "attributes": [],
+        "configView": null
+    },
+    "Magento\\Framework\\Translate\\Inline\\State": {
+        "isEnabled": true,
+        "storedStatus": null
     }
 }

@@ -78,6 +78,9 @@ class CompanionCases
         ['stores', 1, 'magenx_helpdesk/general/enabled', '1'],
         ['stores', 1, 'magenx_helpdesk/customer_account/enabled', '1'],
         ['stores', 1, 'magenx_helpdesk/guest/enabled', '1'],
+        // Guest tickets also need the mail gateway on (a guest replies by email);
+        // its cron fetcher does not run in the tests.
+        ['stores', 1, 'magenx_helpdesk/gateway/enabled', '1'],
         ['stores', 1, 'rma/general/enabled', '1'],
         ['stores', 1, 'rma/policy/allowed_order_statuses', 'processing,complete'],
         ['stores', 1, 'rma/withdrawal/enabled', '1'],
@@ -1052,14 +1055,33 @@ class CompanionCases
         return $all;
     }
 
+    /** Environment variable "k/n": run only every n-th case, from the k-th. */
+    public const SLICE_ENV = 'MAGENX_STATE_SLICE';
+
     /**
-     * Data provider shape: [name => [case]].
+     * Data provider shape: [name => [case]], cut to this process's slice.
+     *
+     * The state comparator keeps every test's object graph until the PHP
+     * process ends (core GraphQlStateTest does the same), about 200 MB a
+     * case, so CI splits the cases over several processes with SLICE_ENV.
+     * Without it every case runs.
      *
      * @param array<string, array<string, mixed>> $cases
      * @return array<string, array{0: array<string, mixed>}>
      */
     public static function provide(array $cases): array
     {
+        // phpcs:ignore Magento2.Functions.DiscouragedFunction -- CI process setting, read before Magento runs
+        $slice = (string) getenv(self::SLICE_ENV);
+        if (preg_match('#^(\d+)/(\d+)$#', $slice, $match) && $match[1] >= 1 && $match[1] <= $match[2]) {
+            $position = 0;
+            $cases = array_filter(
+                $cases,
+                static function () use (&$position, $match): bool {
+                    return $position++ % (int) $match[2] === (int) $match[1] - 1;
+                }
+            );
+        }
         return array_map(static fn (array $case): array => [$case], $cases);
     }
 

@@ -379,10 +379,12 @@ cd dev/tests/integration
 ../../../vendor/bin/phpunit -c phpunit.xml --testsuite "Magenx companion state"
 ```
 
-Copy `Test/Integration/_files/state-filter-list-magenx.php` into
+Copy `Test/Integration/_files/state-filter-list-magenx.php` and
+`state-skip-list-magenx.php` into
 `dev/tests/integration/framework/Magento/TestFramework/ApplicationStateComparator/_files/`:
-it filters what carries no request state, `AbstractDb::$_uniqueFields` and the
-total codes that `RestoreTotalCodes` puts back. On Mage-OS, also copy
+they cover what carries no request state, such as `AbstractDb::$_uniqueFields`,
+the parsed-query cache and the total codes that `RestoreTotalCodes` puts back
+(each entry is explained in the file). On Mage-OS, also copy
 `state-filter-list-mageos.php` there: it filters the plugin references
 Mage-OS's compiled interceptors cache and its Ignition error handler, which
 the core lists do not know about.
@@ -400,7 +402,10 @@ you run may be skipped. `phpunit.xml.dist` in this module only runs
 CI runs all of this in `.github/workflows/graphql-state.yml`, started by
 hand (Actions → GraphQL state → Run workflow): a fresh Mage-OS install on
 PHP 8.4 ZTS (the FrankenPHP build), MariaDB and OpenSearch services, then the companion and
-core state suites. Everything is installed with composer, as a store does:
+core state suites. The comparator keeps every test's object graph until PHP
+exits (about 200 MB a test), so each suite runs in several PHPUnit processes
+capped at 4G: the companion cases split with `MAGENX_STATE_SLICE=k/n`
+(see `CompanionCases::provide()`), the core suite one test class per process. Everything is installed with composer, as a store does:
 this module from the branch it runs on, every `magenxcommerce/module-*` package
 (from Packagist once published, from its GitHub repository until then), and
 Stripe (`stripe/stripe-payments`) from the Magento Marketplace. It uses the
