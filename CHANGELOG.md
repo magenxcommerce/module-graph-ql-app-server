@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.4](https://github.com/magenxcommerce/module-graph-ql-app-server/compare/v1.1.3...v1.1.4) (2026-10-11)
+
+
+### Bug Fixes
+
+* get the GraphQL state suites green with every companion module installed ([#18](https://github.com/magenxcommerce/module-graph-ql-app-server/issues/18)) ([0de8317](https://github.com/magenxcommerce/module-graph-ql-app-server/commit/0de831757005e53447f9e759373530114664a824))
+
 ## [1.1.3](https://github.com/magenxcommerce/module-graph-ql-app-server/compare/v1.1.2...v1.1.3) (2026-10-10)
 
 
