@@ -152,6 +152,12 @@ jobs:
           echo "Module repositories: $(wc -l <<<"$listing"), private: $(grep -c ' private$' <<<"$listing" || true)"
           if [ "$HAS_MODULES_TOKEN" = true ] && ! grep -q ' private$' <<<"$listing"; then
             echo "::warning::MAGENX_MODULES_TOKEN lists no private module repository: private modules are not installed, and their cases are skipped."
+            # What the token is, without printing it: its type prefix (ghp_ classic,
+            # github_pat_ fine-grained, ghs_ app), its account, and whether it
+            # can read one private module directly. A repository secret of the
+            # same name overrides the organisation secret.
+            echo "Token type: ${GH_TOKEN:0:4}..., account: $(gh api user --jq .login 2>/dev/null || echo 'n/a (not a user token)')"
+            echo "repos/magenxcommerce/module-reward: HTTP $(gh api -i repos/magenxcommerce/module-reward 2>/dev/null | head -1 | awk '{print $2}' || true)"
           fi
           for repo in $repos; do
             name=$(gh api "repos/magenxcommerce/$repo/contents/composer.json" --jq '.content' 2>/dev/null \
