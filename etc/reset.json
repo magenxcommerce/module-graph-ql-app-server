@@ -97,5 +97,9 @@
         "_imageFile": null,
         "attributes": [],
         "configView": null
+    },
+    "Magento\\Framework\\Translate\\Inline\\State": {
+        "isEnabled": true,
+        "storedStatus": null
     }
 }

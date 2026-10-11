@@ -206,7 +206,15 @@ stale and growing, and it keeps whole order models alive). Reset here,
 with `Sales\Model\Order\ShipmentRepository::$registry` (every shipment it
 loaded or saved, kept whole) and the core `TransportBuilder::$message` (the
 last email built, recipients and body included; #3 covered only the
-message data). The return email (`module-rma` `Email\Sender`) runs the shared core
+message data). Helpdesk notifications (`module-helpdesk` `TicketNotifier`) wrap each email
+in the core inline-translation `suspend()`/`resume()`, and the template's
+design emulation (core `App\Emulation`) suspends and resumes again inside
+that pair. The inner `resume()` clears the stored status, so the outer one
+sets `Translate\Inline\State::$isEnabled` to `null`, which then lasts for
+the rest of the worker. Any email sent that way does it (core's contact
+form too). Reset here to the class defaults.
+
+The return email (`module-rma` `Email\Sender`) runs the shared core
 `Catalog\Helper\Image`, which keeps the last product and the theme's view
 config it rendered; reset here as `Image::_reset()` does, plus
 `$configView`. Stripe's `StateResolver` and `OrderService` plugins also

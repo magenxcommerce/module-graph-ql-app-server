@@ -78,6 +78,9 @@ class CompanionCases
         ['stores', 1, 'magenx_helpdesk/general/enabled', '1'],
         ['stores', 1, 'magenx_helpdesk/customer_account/enabled', '1'],
         ['stores', 1, 'magenx_helpdesk/guest/enabled', '1'],
+        // Guest tickets also need the mail gateway on (a guest replies by email);
+        // its cron fetcher does not run in the tests.
+        ['stores', 1, 'magenx_helpdesk/gateway/enabled', '1'],
         ['stores', 1, 'rma/general/enabled', '1'],
         ['stores', 1, 'rma/policy/allowed_order_statuses', 'processing,complete'],
         ['stores', 1, 'rma/withdrawal/enabled', '1'],

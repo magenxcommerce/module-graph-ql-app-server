@@ -26,6 +26,8 @@
  * - View\Config::$viewConfigs and Config\View::$data: each theme's parsed
  *   view.xml, the same for every request (the catalog image helper reads
  *   them, e.g. for the return email's product thumbnail).
+ * - Theme\FlyweightFactory::$themes and $themesByPath: theme models by id and
+ *   path, loaded on first use (e.g. by the first email a worker renders).
  *
  * Classes that are not installed never match. No Magenx\ class belongs here
  * (CompanionSchemaCoverageTest fails on one): fix those with _resetState() or
@@ -41,6 +43,7 @@ return [
         'Magento\Framework\GraphQl\Query\QueryParser' => ['parsedQueries' => null],
         'Magento\Framework\View\Config' => ['viewConfigs' => null],
         'Magento\Framework\Config\View' => ['data' => null],
+        'Magento\Framework\View\Design\Theme\FlyweightFactory' => ['themes' => null, 'themesByPath' => null],
         'StripeIntegration\Payments\Model\InitialFee' => [
             '_code' => null,
             'initialFeeHelper' => null,
