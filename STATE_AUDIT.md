@@ -61,23 +61,29 @@ collector was built for is still kept, so that part of the fix is open.
 
 ## Fix status
 
-Fixes for #1, #2 and every "should fix" row below are pushed to branch
-`claude/peaceful-brown-7sjyjd` in each module repo. They are not merged yet:
-module CI runs on pull requests, and release-please releases from `main`.
+The module fixes for #1, #2 and every "should fix" row below are merged and
+released. The state tests install these releases (or newer) and pass:
 
-| Repo | Commit |
+| Repo | Release with the fix |
 |---|---|
-| `module-reward` | `5faddda` |
-| `module-garan-graph-ql` | `853d91d` |
-| `module-deal-graph-ql` | `dfaa107` |
-| `module-price-history-graph-ql` | `5938474` |
-| `module-helpdesk-graph-ql` | `686791d` |
-| `module-helpdesk` | `41d496a` |
-| `module-rma` | `9417711` |
-| `module-store-pickup-graph-ql` | `31196ad` |
+| `module-reward` | latest release (private repo; covered by the reward state cases) |
+| `module-garan-graph-ql` | `v1.0.3` |
+| `module-deal-graph-ql` | `v1.0.5` |
+| `module-price-history-graph-ql` | `v1.0.2` |
+| `module-helpdesk-graph-ql` | `v1.1.2` |
+| `module-helpdesk` | `v1.2.1` |
+| `module-rma` | `v1.1.2` |
+| `module-store-pickup-graph-ql` | `v1.0.3` |
 
 #3 and #4 are mitigated in this module's `etc/reset.json`. The rest of the
 Stripe core module still needs the check described under #4.
+
+Two Magenx memos are still reset from this module's `etc/reset.json`:
+`Magenx\BestSellerGraphQl\Model\BestSellerProvider::$tableCache` and
+`Magenx\AutoProductLinks\Model\Link\LinkTypeResolver::$boughtTogetherId`.
+Both modules get their own `_resetState()`. Once those releases ship, drop
+the two entries: the Resetter ignores `reset.json` for a class with its own
+`_resetState()`, and `bin/check-reset-json.php` fails on such entries.
 
 ## Must fix before worker traffic
 
