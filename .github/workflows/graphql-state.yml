@@ -143,8 +143,16 @@ jobs:
           packages=('magenxcommerce/module-graph-ql-app-server:@dev')
           [ "${MARKETPLACE:-0}" = 1 ] && packages+=('stripe/stripe-payments:*')
 
-          repos=$(gh repo list magenxcommerce --limit 300 --no-archived --json name --jq '.[].name' \
-            | grep '^module-' | grep -vx 'module-graph-ql-app-server' | sort)
+          # REST, type=all: every repository the token can read, private ones
+          # included. (gh repo list returned only the public ones here.)
+          listing=$(gh api --paginate 'orgs/magenxcommerce/repos?type=all&per_page=100' \
+            --jq '.[] | select(.archived | not) | select(.name | startswith("module-")) | "\(.name) \(.visibility)"' \
+            | grep -v '^module-graph-ql-app-server ' | sort)
+          repos=$(cut -d' ' -f1 <<<"$listing")
+          echo "Module repositories: $(wc -l <<<"$listing"), private: $(grep -c ' private$' <<<"$listing" || true)"
+          if [ "$HAS_MODULES_TOKEN" = true ] && ! grep -q ' private$' <<<"$listing"; then
+            echo "::warning::MAGENX_MODULES_TOKEN lists no private module repository: private modules are not installed, and their cases are skipped."
+          fi
           for repo in $repos; do
             name=$(gh api "repos/magenxcommerce/$repo/contents/composer.json" --jq '.content' 2>/dev/null \
               | base64 -d 2>/dev/null | jq -r '.name // empty' || true)
