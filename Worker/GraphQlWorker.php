@@ -75,7 +75,7 @@ class GraphQlWorker
         private readonly ObjectManagerInterface $objectManager,
         private readonly ResetterInterface $resetter,
         private readonly Limits $limits,
-        private readonly ReadOnlyScope $scope,
+        private readonly Scope $scope,
         private readonly string $envFile,
         private readonly string $warmupQuery = '',
     ) {
@@ -149,7 +149,7 @@ class GraphQlWorker
         if (class_exists(DisableSession::class) && !$om->get(DisableSession::class)->isDisabled()) {
             $this->logger->warning(
                 'magenx-app-server: GraphQL sessions are enabled; run '
-                . '`bin/magento config:set graphql/session/disable 1` (the worker serves anonymous reads only)'
+                . '`bin/magento config:set graphql/session/disable 1` (the worker drops cookies and never keeps a session)'
             );
         }
 
@@ -160,8 +160,9 @@ class GraphQlWorker
         $this->configMarker = $this->loadConfigMarker();
 
         $this->logger->notice(sprintf(
-            'magenx-app-server: worker %s booted in %d ms, memory %s, %s',
+            'magenx-app-server: worker %s booted in %s mode in %d ms, memory %s, %s',
             $this->workerName(),
+            $this->scope->mode,
             (int) round((microtime(true) - ($startedAt ?? microtime(true))) * 1000),
             $this->formatMemory(),
             $this->formatOpcache()
@@ -183,7 +184,8 @@ class GraphQlWorker
                 // Not ours: refuse before Magento runs, so nginx replays it on PHP-FPM.
                 $this->sendError(503, 'Out of worker scope', ['X-Magenx-Worker: out-of-scope']);
             } elseif ($this->maintenanceMode->isOn((string) ($_SERVER['REMOTE_ADDR'] ?? ''))) {
-                $this->sendError(503, 'Service temporarily unavailable');
+                // Magento did not run either: nginx may replay it, PHP-FPM answers for maintenance.
+                $this->sendError(503, 'Service temporarily unavailable', ['X-Magenx-Worker: maintenance']);
             } else {
                 $this->dispatch();
             }
@@ -312,9 +314,9 @@ class GraphQlWorker
             $_SERVER['REMOTE_ADDR'] = $realIp;
         }
 
-        // Anonymous reads need no cookie, and a session cookie would let
-        // Magento resume a PHP session inside this long-lived thread. Core
-        // PhpCookieReader reads $_COOKIE directly, so empty it as well.
+        // GraphQL clients authenticate with tokens, not cookies, and a session
+        // cookie would let Magento resume a PHP session inside this long-lived
+        // thread. Core PhpCookieReader reads $_COOKIE directly, so empty it as well.
         $_COOKIE = [];
         unset($_SERVER['HTTP_COOKIE']);
 
@@ -351,7 +353,8 @@ class GraphQlWorker
 
     /**
      * A session must never outlive its request in a shared thread. Changes are
-     * discarded: in scope, the worker only serves anonymous reads.
+     * discarded: GraphQL clients authenticate with tokens, and cookies never
+     * reach the worker, so no request can resume the session later anyway.
      */
     private function closeSession(): void
     {

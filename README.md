@@ -23,7 +23,7 @@ This module supplies that piece and the request loop.
 | `bin/graphql-worker.php` | FrankenPHP worker entrypoint: bootstrap once, loop on `frankenphp_handle_request()` |
 | `Worker/GraphQlWorker.php` | Per-worker setup (error handler, `graphql` area, area DI config, front controller) and per-request hydrate → dispatch → send → reset |
 | `Worker/Limits.php` | Recycle limits: requests, memory, age |
-| `Worker/ReadOnlyScope.php` | Admits only anonymous, read-only, allowlisted queries; everything else is refused with 503 for nginx to replay on PHP-FPM |
+| `Worker/Scope.php` | Worker mode (`MAGENX_WORKER_MODE`): `default` admits every request, `restricted` only anonymous, read-only, allowlisted queries; anything out of scope is refused with 503 for nginx to replay on PHP-FPM |
 | `ObjectManager/ObjectManagerFactory.php` | Worker-only `ObjectManagerFactory` that swaps in the environment below |
 | `ObjectManager/EnvironmentFactory.php`, `Environment/Compiled.php` | Compiled DI environment with the reset-tracking factory; refuses to boot without `setup:di:compile` output |
 | `ObjectManager/Factory/Compiled.php` | Subclass of the core `Compiled` factory that registers every created object with the core `Resetter` |
@@ -39,13 +39,14 @@ Per request:
    This also clears request properties that core `_resetState()` misses in
    2.4.8 (`originalPathInfo`, `isSafeMethod`, `route`, ...).
    Cookies are dropped (`$_COOKIE`, `HTTP_COOKIE`; Caddy also strips the
-   header): anonymous reads need none, and a session cookie must never
-   resume a PHP session inside a long-lived thread.
-2. **Scope check.** Anything but an anonymous, read-only, allowlisted query
-   gets 503 before Magento runs, and nginx replays it on PHP-FPM (see
-   Rollout). The query is parsed with the core `QueryParser`, which Magento
-   then reuses, so each query is parsed once.
-3. **Maintenance check.** Answers 503 while `var/.maintenance.flag` exists.
+   header): GraphQL clients authenticate with tokens, and a session cookie
+   must never resume a PHP session inside a long-lived thread.
+2. **Scope check.** A request outside the worker mode's scope (see Worker
+   modes) gets 503 before Magento runs, and nginx replays it on PHP-FPM. In
+   `restricted` mode the query is parsed with the core `QueryParser`, which
+   Magento then reuses, so each query is parsed once.
+3. **Maintenance check.** Answers 503 while `var/.maintenance.flag` exists;
+   nginx replays it on PHP-FPM, which answers for maintenance.
 4. **Dispatch** through the `graphql` front controller, so its plugins
    (store header, cache tags, ...) run as usual. Then fire
    `controller_front_send_response_before` and send.
@@ -78,7 +79,7 @@ Per request:
    told apart:
 
    ```text
-   magenx-app-server: worker 1/9f3c2a1b booted in 612 ms, memory 38.2 MB (peak 40.1 MB), opcache 41210 scripts (130987 max), 301/512 MB, interned 38/64 MB, hit 99.2%, restarts oom 0 hash 0
+   magenx-app-server: worker 1/9f3c2a1b booted in restricted mode in 612 ms, memory 38.2 MB (peak 40.1 MB), opcache 41210 scripts (130987 max), 301/512 MB, interned 38/64 MB, hit 99.2%, restarts oom 0 hash 0
    magenx-app-server: worker 1/9f3c2a1b recycling (max-age) after 87/463 requests, 1712/1712 s, memory 61.4 MB (peak 80.3 MB) (limit 512 MB), opcache ...
    magenx-app-server: worker 1/4d07e6c5 stopped by FrankenPHP (idle 62 s) after 12/541 requests, 140/1930 s, memory 52.0 MB (peak 70.9 MB) (limit 512 MB), opcache ...
    ```
@@ -174,12 +175,16 @@ What the image does:
 nginx (`nginx/conf_m2/graphql_worker*.conf.template`, included by `install.sh`):
 
 - **Routing:** `location = /graphql` proxies a canary share (default 10%) of
-  anonymous requests to `frankenphp:8081`.
-- **Fallback:** requests with a customer token, and anything the worker
-  refuses (503) or cannot serve (502/504), are internally rewritten to
+  requests to `frankenphp:8081`. The same config serves both worker modes.
+- **Fallback:** the rest of the canary split, anything the worker refuses
+  (503 out of scope or maintenance), and requests it never received (502/504
+  with nothing sent: worker down or unreachable) are internally rewritten to
   `/index.php` and served by php-fpm. That is the same path
   `location / { try_files … /index.php }` takes today: `REQUEST_URI` stays
-  `/graphql` and the buffered body is replayed.
+  `/graphql` and the buffered body is replayed. A POST that reached the
+  worker and then failed (502, 504, or a 503 the worker did not mark) is not
+  replayed: it may be a mutation the worker already ran, so the client gets
+  the error. GETs are always replayable: Magento runs no mutation over GET.
 - **Startup:** the upstream uses `resolve` (nginx ≥ 1.27.3; the stack runs
   1.31.5), so nginx starts even when the frankenphp container is stopped or
   missing. A static upstream would stop nginx from starting and take the
@@ -188,16 +193,51 @@ nginx (`nginx/conf_m2/graphql_worker*.conf.template`, included by `install.sh`):
   adopts it as `REMOTE_ADDR` (`MAGENX_WORKER_TRUST_X_REAL_IP=1`), so the
   maintenance allowlist and logs match php-fpm.
 
-## Rollout: read-only canary via nginx
+## Worker modes
 
-The worker serves **anonymous, read-only catalog/CMS queries only**.
-Customer, cart, checkout and every mutation stay on PHP-FPM.
+`MAGENX_WORKER_MODE` (worker container env) picks what the worker serves:
+
+| Mode | Served by the worker | Replayed on PHP-FPM |
+|---|---|---|
+| `default` | every `/graphql` request: guest and customer-token queries, cart, checkout, every mutation | bodies over `MAGENX_WORKER_MAX_BODY_KB`, maintenance, worker unreachable |
+| `restricted` | anonymous, read-only, allowlisted catalog/CMS queries | everything else, plus the above |
+
+Unset means `restricted`, so upgrading the module never widens what an
+existing install sends to the worker. The `.env` block from `install.sh`
+sets `default`. Any other value stops the worker from booting.
+
+Switching needs no nginx change: set the variable in `.env` and recreate
+the worker container. Each worker logs its mode at boot
+(`booted in default mode in N ms`).
+
+```bash
+docker compose -f docker-compose.yml -f frankenphp/docker-compose.frankenphp.yml up -d frankenphp
+```
+
+An existing install keeps `restricted` until `MAGENX_WORKER_MODE` is added
+to its `.env`: `install.sh` does not append the block again. Re-run
+`install.sh` and rebuild nginx anyway, for the replay rules below.
+
+`default` mode runs customer data, carts and orders inside long-lived
+workers. Before you use it, the verification gate below must pass with
+every module you run, and the open items in [STATE_AUDIT.md](STATE_AUDIT.md)
+must not apply to your store.
+
+## Rollout: canary via nginx
 
 nginx cannot see the operation inside a POST body, so the worker enforces
-this itself (`Worker/ReadOnlyScope.php`). A request with an
-`Authorization` header, a mutation, or a root field outside the allowlist
-gets `503` + `X-Magenx-Worker: out-of-scope` before Magento runs, and nginx
-replays it on PHP-FPM.
+its mode itself (`Worker/Scope.php`). An out-of-scope request (in
+`restricted` mode: an `Authorization` header, a mutation, or a root field
+outside the allowlist) gets `503` + `X-Magenx-Worker: out-of-scope` before
+Magento runs, and nginx replays it on PHP-FPM. Customer-token requests
+reach the worker in both modes; in `restricted` mode that costs one refusal
+round trip, well under 1 ms.
+
+nginx replays a worker error only when the worker cannot have run the
+request (`$graphql_worker_replay` in `graphql_worker_maps.conf`): nothing
+was sent to it, it marked the refusal with `X-Magenx-Worker`, or the method
+is GET. Any other replay could run a mutation twice, for example place an
+order twice.
 
 Two tested configurations, depending on which nginx proxies `/graphql`:
 
@@ -206,7 +246,10 @@ Two tested configurations, depending on which nginx proxies `/graphql`:
   the `nginx:8080` server the Next.js container calls). `/graphql` goes to the
   worker first (`upstream graphql_worker` in `deploy/nginx/maps.conf`).
   Customer-token requests skip it. Refusals (503) and outages (502/504)
-  are replayed on Magento via `error_page … = @graphql_fpm`.
+  are replayed on Magento via `error_page … = @graphql_fpm`. That config
+  replays every 502/504 and skips the worker for customer tokens, so it is
+  for `restricted` mode only: port `$graphql_worker_replay` from the magenx
+  templates before using `default` mode behind it.
 - **Magento nginx** on the magenx stack:
   `frankenphp/nginx/conf_m2/*.template`, installed by `install.sh` (see
   "magenx docker stack").
@@ -221,7 +264,7 @@ non-read operations. That only saves the refusal round trip:
 `operationName` is client-chosen, so the worker's own check stays the
 boundary.
 
-Default allowlist (`ReadOnlyScope::DEFAULT_ROOT_FIELDS`):
+Default allowlist for `restricted` mode (`Scope::DEFAULT_ROOT_FIELDS`):
 
 - core: `products`, `categories`, `categoryList`, `storeConfig`,
   `availableStores`, `cmsPage`, `cmsBlocks`, `route`, `urlResolver`,
@@ -434,7 +477,8 @@ modules, ranked. The "must fix" items block worker traffic.
 
 ## Known gaps
 
-- **Not tested end to end with Magento.** What was tested:
+- **Not tested end to end with Magento.** `default` mode in particular has
+  only the state tests behind it. What was tested:
   - The factory and resetter wiring, smoke-tested against the 2.4.8
     framework sources.
   - The worker image, built and run with the compose hardening (read-only
@@ -449,6 +493,10 @@ modules, ranked. The "must fix" items block worker traffic.
     - with the worker stopped, requests fall back (+0.3 s while Docker DNS
       is stale) and come back once it is up;
     - nginx starts with no worker container at all.
+  - The replay rules (`$graphql_worker_replay`), on nginx 1.24 against stub
+    upstreams: refusals, connection failures and GETs replay on php-fpm; a
+    POST the worker received and then failed on (timeout, dropped
+    connection, unmarked 503) returns the error.
   - The stack's own nginx templates with the includes pass `nginx -t`, and
     the compose override merges cleanly with the stack's `docker-compose.yml`.
 

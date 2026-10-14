@@ -30,11 +30,13 @@ none of these were bugs before.
 
 ## What applies to the read-only phase
 
-The worker only serves anonymous, read-only, allowlisted queries
-(`Worker/ReadOnlyScope.php`). Everything else is refused, and nginx replays
-it on PHP-FPM. In this phase, mutations, customer tokens, cart and checkout
-never run in the worker, so findings #1–#4 below do not apply yet. They are
-fixed or mitigated ahead of a later phase that moves cart or checkout over.
+In `restricted` mode (`MAGENX_WORKER_MODE`), the worker only serves
+anonymous, read-only, allowlisted queries (`Worker/Scope.php`). Everything
+else is refused, and nginx replays it on PHP-FPM. In this mode, mutations,
+customer tokens, cart and checkout never run in the worker, so findings
+#1–#4 below do not apply. In `default` mode the worker serves all of them,
+so every finding below applies, including the open `TotalsCollectorList`
+store item.
 
 What does apply now:
 - the stale/growing caches on read paths: deal, price-history, garan

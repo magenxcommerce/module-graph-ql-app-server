@@ -57,7 +57,7 @@
 		request_body {
 			max_size 2MB
 		}
-		# The worker serves anonymous reads only: no cookie may reach PHP, so no
+		# GraphQL clients authenticate with tokens: no cookie may reach PHP, so no
 		# PHP session can be resumed inside a long-lived thread.
 		request_header -Cookie
 

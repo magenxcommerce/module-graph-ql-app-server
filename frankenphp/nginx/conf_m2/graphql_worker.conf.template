@@ -1,9 +1,10 @@
 ## FrankenPHP GraphQL worker: /graphql routing (server context).
 ## Include in sites-available/magento2.conf before `location /`.
 ##
-## php-fpm stays the fallback for everything: requests routed to fpm, and
-## anything the worker refuses (503 + X-Magenx-Worker: out-of-scope) or
-## cannot serve (down, timeout) are internally rewritten to /index.php,
+## The same config serves both worker modes (MAGENX_WORKER_MODE): the worker
+## itself refuses what its mode does not serve. php-fpm stays the fallback:
+## requests routed to fpm, and anything replayed (see $graphql_worker_replay
+## in graphql_worker_maps.conf) are internally rewritten to /index.php,
 ## exactly what `location /` + try_files does today. REQUEST_URI stays
 ## /graphql and the buffered request body is replayed as is.
 
@@ -29,9 +30,30 @@ location = /graphql {
     proxy_read_timeout 30s;
 
     proxy_intercept_errors on;
-    error_page 502 503 504 = @graphql_fpm;
+    error_page 502 = @graphql_worker_502;
+    error_page 503 = @graphql_worker_503;
+    error_page 504 = @graphql_worker_504;
 }
 
-location @graphql_fpm {
-    rewrite ^ /index.php last;
+## A request the worker may already have run (a mutation, in default mode) is
+## never replayed: it would run twice. The client gets the error instead.
+location @graphql_worker_502 {
+    if ($graphql_worker_replay) {
+        rewrite ^ /index.php last;
+    }
+    return 502;
+}
+
+location @graphql_worker_503 {
+    if ($graphql_worker_replay) {
+        rewrite ^ /index.php last;
+    }
+    return 503;
+}
+
+location @graphql_worker_504 {
+    if ($graphql_worker_replay) {
+        rewrite ^ /index.php last;
+    }
+    return 504;
 }

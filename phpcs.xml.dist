@@ -44,7 +44,7 @@
     <rule ref="Magento2.Security.IncludeFile">
         <exclude-pattern>*/bin/*</exclude-pattern>
     </rule>
-    <!-- Limits/ReadOnlyScope::fromEnvironment() are built by bin/graphql-worker.php, not by DI. -->
+    <!-- Limits/Scope::fromEnvironment() are built by bin/graphql-worker.php, not by DI. -->
     <rule ref="Magento2.Functions.StaticFunction">
         <exclude-pattern>*/Worker/*</exclude-pattern>
     </rule>
