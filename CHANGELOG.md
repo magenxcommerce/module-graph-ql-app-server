@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/magenxcommerce/module-graph-ql-app-server/compare/v1.1.4...v1.2.0) (2026-10-14)
+
+
+### Features
+
+* add default and restricted worker modes ([#20](https://github.com/magenxcommerce/module-graph-ql-app-server/issues/20)) ([4f56544](https://github.com/magenxcommerce/module-graph-ql-app-server/commit/4f565444da8456852b768a057cc9f78e19639e65))
+
 ## [1.1.4](https://github.com/magenxcommerce/module-graph-ql-app-server/compare/v1.1.3...v1.1.4) (2026-10-11)
 
 
