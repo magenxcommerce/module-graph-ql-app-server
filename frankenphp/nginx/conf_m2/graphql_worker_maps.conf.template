@@ -13,16 +13,28 @@ upstream frankenphp {
     keepalive 32;
 }
 
-## Canary share of anonymous /graphql traffic sent to the worker.
-## Raise step by step once graphql-timing and error logs look clean.
-split_clients "${http_x_forwarded_for}${http_user_agent}" $graphql_worker_canary {
+## Canary share of /graphql traffic sent to the worker. Raise step by step
+## once graphql-timing and error logs look clean. Customer-token requests go
+## to the worker too: in restricted mode it refuses them before Magento runs
+## (well under 1 ms), and nginx replays them on php-fpm.
+split_clients "${http_x_forwarded_for}${http_user_agent}" $graphql_worker_route {
     10%   worker;
     *     fpm;
 }
 
-## Customer-token requests always stay on php-fpm (the worker would refuse
-## them anyway; this saves the round trip).
-map $http_authorization $graphql_worker_route {
-    default  $graphql_worker_canary;
-    "~.+"    fpm;
+## Whether a worker error (502/503/504) may be replayed on php-fpm. Only when
+## the worker cannot have run the request:
+##  - nothing was sent to it ($upstream_bytes_sent 0: connection refused or
+##    timed out, container stopped);
+##  - it refused before Magento ran (X-Magenx-Worker: out-of-scope or
+##    maintenance);
+##  - GET: Magento runs no mutation over GET, so a replay is a second read.
+## Otherwise (a POST that reached the worker and failed half-way) a replay
+## could run a mutation twice, e.g. place an order twice.
+map "$request_method:$upstream_bytes_sent:$upstream_http_x_magenx_worker" $graphql_worker_replay {
+    default                 "";
+    "~^GET:"                1;
+    "~^[A-Z]+:0:"           1;
+    "~:out-of-scope$"       1;
+    "~:maintenance$"        1;
 }

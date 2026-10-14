@@ -15,7 +15,7 @@ declare(strict_types=1);
 use Magenx\AppServer\ObjectManager\ObjectManagerFactory;
 use Magenx\AppServer\Worker\GraphQlWorker;
 use Magenx\AppServer\Worker\Limits;
-use Magenx\AppServer\Worker\ReadOnlyScope;
+use Magenx\AppServer\Worker\Scope;
 use Magento\Framework\App\Bootstrap;
 
 $startedAt = microtime(true);
@@ -53,7 +53,7 @@ $worker = new GraphQlWorker(
     $bootstrap->getObjectManager(),
     $objectManagerFactory->getResetter(),
     Limits::fromEnvironment(),
-    ReadOnlyScope::fromEnvironment(),
+    Scope::fromEnvironment(),
     BP . '/app/etc/env.php',
     $warmupQuery === 'off' ? '' : $warmupQuery
 );
