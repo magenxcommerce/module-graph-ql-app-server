@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.2](https://github.com/magenxcommerce/module-graph-ql-app-server/compare/v1.2.1...v1.2.2) (2026-10-15)
+
+
+### Bug Fixes
+
+* ship restricted worker mode and record Stripe state findings ([#24](https://github.com/magenxcommerce/module-graph-ql-app-server/issues/24)) ([c4d1e7b](https://github.com/magenxcommerce/module-graph-ql-app-server/commit/c4d1e7b6132072c9b33092cf65e9b386eb0ed35b))
+
 ## [1.2.1](https://github.com/magenxcommerce/module-graph-ql-app-server/compare/v1.2.0...v1.2.1) (2026-10-15)
 
 
