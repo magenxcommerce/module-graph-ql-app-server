@@ -193,9 +193,18 @@ The companion and core state tests then flagged more of Stripe's
 - `Model\Order\InitialFeeManagement::$initialFee`/`$baseInitialFee`: an
   order's fee kept on a shared object, written onto the next order by
   `setDataFrom()`. Reset here.
-- `Model\Stripe\Service\StripeObjectService::$objectSpace` and
-  `Model\Config::$isSubscriptionsEnabled`: per-call and config state on
-  shared objects. Reset here.
+- `Model\Stripe\Service\StripeObjectService::$object` and `$lastError`:
+  the last Stripe object (customer, payment method, payment intent, ...)
+  and API error, kept on the services that shared `Model\Stripe\*` models
+  hold. Reset here. `$objectSpace` is not: `StripeObjectServicePool` sets it
+  once, right after building the service, and a reset left the service
+  without an API endpoint. The next lookup then returned no object, and
+  `placeOrder` with a payment needing authentication failed with
+  `Attempt to read property "type" on null` in `PaymentMethod.php`. The
+  comparator still reports it as changed after construction, so it is
+  filtered in the state tests instead.
+- `Model\Config::$isSubscriptionsEnabled`: config state on a shared object.
+  Reset here.
 - `Model\InitialFee` and `Tax\Model\Quote\Total\StripeFlatFees` set their
   total code only in the constructor, so core `AbstractTotal::_resetState()`
   leaves them without one (same as #1). `reset.json` cannot help: the

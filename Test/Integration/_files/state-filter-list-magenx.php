@@ -16,6 +16,11 @@
  *   cannot reach (the class has its own _resetState()); the setting is
  *   stale until the worker recycles (STATE_AUDIT.md).
  *
+ * - StripeObjectService::$objectSpace: the Stripe API endpoint, set once by
+ *   StripeObjectServicePool right after it builds the service, so the
+ *   comparator sees it as changed since construction. It holds no request
+ *   state, and resetting it breaks every later Stripe lookup.
+ *
  * - QueryParser::$parsedQueries: the parsed document per query text, the
  *   same for every customer. Core counts it from the first measured request
  *   on (the parser is usually built there); a seed or token warm-up request
@@ -50,5 +55,6 @@ return [
             'isSubscriptionsEnabled' => null,
         ],
         'StripeIntegration\Tax\Model\Quote\Total\StripeFlatFees' => ['_code' => null],
+        'StripeIntegration\Payments\Model\Stripe\Service\StripeObjectService' => ['objectSpace' => null],
     ],
 ];

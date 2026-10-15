@@ -57,7 +57,8 @@
         "baseInitialFee": 0
     },
     "StripeIntegration\\Payments\\Model\\Stripe\\Service\\StripeObjectService": {
-        "objectSpace": null
+        "object": null,
+        "lastError": null
     },
     "StripeIntegration\\Payments\\Model\\Config": {
         "isSubscriptionsEnabled": null
