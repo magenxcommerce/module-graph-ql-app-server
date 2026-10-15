@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/magenxcommerce/module-graph-ql-app-server/compare/v1.2.0...v1.2.1) (2026-10-15)
+
+
+### Bug Fixes
+
+* stop resetting the Stripe object service's endpoint between requests ([#22](https://github.com/magenxcommerce/module-graph-ql-app-server/issues/22)) ([e88048d](https://github.com/magenxcommerce/module-graph-ql-app-server/commit/e88048da88e50366d6e72ca2b573abbee01f80b7))
+
 ## [1.2.0](https://github.com/magenxcommerce/module-graph-ql-app-server/compare/v1.1.4...v1.2.0) (2026-10-14)
 
 
