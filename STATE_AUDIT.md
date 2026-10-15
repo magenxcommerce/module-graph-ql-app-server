@@ -19,8 +19,9 @@ none of these were bugs before.
 3. A check against how core 2.4.8 resets its own base classes.
 
 **Not covered:**
-- The closed-source `stripe/module-payments` core module. It is not on
-  Packagist.
+- The closed-source `stripe/module-payments` core module beyond #4 and #5.
+  It is not on Packagist; #5 was checked against the 4.7.1 release in the
+  public `stripe/stripe-magento2-releases` repo.
 - Core classes beyond the ones named below.
 - Runtime behaviour. The authoritative check is still `GraphQlStateTest`
   with every module enabled, plus this module's companion state tests
@@ -34,9 +35,10 @@ In `restricted` mode (`MAGENX_WORKER_MODE`), the worker only serves
 anonymous, read-only, allowlisted queries (`Worker/Scope.php`). Everything
 else is refused, and nginx replays it on PHP-FPM. In this mode, mutations,
 customer tokens, cart and checkout never run in the worker, so findings
-#1–#4 below do not apply. In `default` mode the worker serves all of them,
+#1–#5 below do not apply. In `default` mode the worker serves all of them,
 so every finding below applies, including the open `TotalsCollectorList`
-store item.
+store item. #5 has no fix in this module: with Stripe installed, stay in
+`restricted` mode.
 
 What does apply now:
 - the stale/growing caches on read paths: deal, price-history, garan
@@ -77,8 +79,8 @@ released. The state tests install these releases (or newer) and pass:
 | `module-rma` | `v1.1.2` |
 | `module-store-pickup-graph-ql` | `v1.0.3` |
 
-#3 and #4 are mitigated in this module's `etc/reset.json`. The rest of the
-Stripe core module still needs the check described under #4.
+#3 and #4 are mitigated in this module's `etc/reset.json`. #5 (the rest of
+the Stripe core module) is open and blocks `default` mode.
 
 Two Magenx memos are still reset from this module's `etc/reset.json`:
 `Magenx\BestSellerGraphQl\Model\BestSellerProvider::$tableCache` and
@@ -238,12 +240,88 @@ config it rendered; reset here as `Image::_reset()` does, plus
 keep the last order state and a lazily built helper; reset as well.
 
 Still to check on the install:
-- The rest of Stripe's `Model/` classes:
-  `grep -rnE '^\s+(public|protected|private) (static )?\$\w+ = ' vendor/stripe/module-payments/Model`
 - The guest branch, which reads `sessionManager->getStripeCustomerId()` from
   the PHP session.
 - `GraphQlCheckoutMutationsStateTest` with Stripe as the payment method,
   before sending checkout traffic to the worker.
+
+The rest of Stripe's `Model/` classes were checked since; see #5.
+
+### 5. Stripe core module keeps customer and order state on shared objects — open, blocks `default` mode
+
+Checked against `stripe/module-payments` 4.7.1 (`Payments` and `Tax`), by
+reading the source. Not reproduced at runtime. Nothing here applies in
+`restricted` mode: Stripe operations, customer tokens and checkout are
+replayed on PHP-FPM.
+
+**a. The Stripe customer is captured in constructors. `reset.json` cannot
+fix this.** About 20 classes run
+`$this->customer = $helper->getCustomerModel()` (or `$stripeCustomer`,
+`$customerModel`) in their constructor. A shared instance keeps the Stripe
+customer of the request that built it until the worker recycles. Resetting
+the property to `null` breaks every later `->getStripeId()` call, so
+`bin/check-reset-json.php` rightly refuses it. Shared instances reachable
+from `/graphql`:
+
+- `Api\Service::$stripeCustomer`. Every Stripe GraphQL resolver
+  (`Model/GraphQL/Resolver/*`) calls this service. With customer A's
+  model, customer B's `listStripePaymentMethods` lists A's saved cards,
+  `deleteStripePaymentMethod` deletes them, and
+  `changeSubscriptionPaymentMethod` checks ownership against A. The
+  storefront does not call these operations, but any client with a
+  customer token that reaches the worker can.
+- `Model\PaymentIntent::$customer`, injected (shared) into the payment
+  method adapter that `placeOrder` uses. In the pending-payment branches,
+  `processPendingOrderWithoutIntent()` writes A's `customer_stripe_id` onto
+  B's order.
+- `Model\PaymentElement::$customer`, in the shared copies held by
+  `Api\Service` and `Helper\InitParams`. Used to check that a payment method
+  belongs to the customer, and to attach payment methods to the customer.
+- `Helper\Subscriptions`, `Helper\SubscriptionSwitch`, `Helper\SetupIntent`,
+  `Helper\InitParams`, `Model\CheckoutSession`, `Observer\CustomerRegistration`
+  and the Gateway `OrderCommand`s.
+
+`StripeCustomer::isLoggedIn()` reads the customer session, which the worker
+never keeps. So these operations may instead fail with "The customer is not
+logged in." Either way they are wrong in a worker.
+
+Possible fixes: keep `placeOrder`, `setPaymentMethodOnCart` and every Stripe
+root field on PHP-FPM in `default` mode (a deny list in `Worker/Scope.php`),
+or patch Stripe to look the customer up on use instead of in the
+constructor (to be redone for every Stripe release).
+
+**b. Request flags and per-order values that are never cleared.** These have
+declared defaults and are not set in the constructor, so `reset.json`
+entries would cover them:
+
+- `Model\Checkout\Flow`, all 14 public flags. After one order waiting for
+  ACH micro-deposit verification, `isPendingMicrodepositsVerification` stays
+  true, and `PaymentMethod::pay()` fails every later order on that worker
+  with "Something went wrong". `isFutureSubscriptionSetup`, `isQuoteCorrupted`,
+  `isExpressCheckout` (set by the ECE resolvers), `isSubscriptionUpdate` and
+  `creatingOrderFromCharge` send later orders down the wrong branch.
+- `Model\Subscription\Flow`, 4 flags that pick which emails are sent.
+- `Model\Order\PaymentState`: the last confirmed PaymentIntent. When a later
+  order fails, the `OrderService` plugin treats it as "crashed after
+  payment" with A's PaymentIntent (`Helper\CheckoutCrash`).
+- `Model\Cart\Info`: the last quote and its subscription flags.
+- `Invoice\Capture::$invoice`, `Subscription\Payment::$paymentIntent`,
+  `Subscription\StartDate`, `Subscription\Cart::$quote`.
+- `Tax\Model\TaxFlow`: flags and `addressResults` (with Stripe Tax only).
+
+**c. Shared `AbstractModel`s keep the row they last loaded.** Core 2.4.8
+`AbstractModel` has no `_resetState()`, and the shared `PaymentElement`,
+`PaymentIntent` and `CheckoutSession` models keep `_data`. When
+`PaymentElement::fromQuoteId()` finds no row for B's quote, A's PaymentIntent
+id is still in `_data`, and `getRequiresAction` can return it. A fix
+resets the inherited `_data`, `_origData`, `_hasDataChanges`,
+`_isObjectNew` and `storedData`, which needs `bin/check-reset-json.php` to
+accept inherited properties.
+
+**d. Set once per worker.** `Model\Config` builds `$stripeClient` once,
+with the secret key of the first store it serves (`isInitialized`). A
+multi-store setup with separate Stripe accounts would use the wrong account.
+`$isStripeAPIKeyError` stays set once raised.
 
 ## Should fix: stale or growing state (no cross-customer data)
 
