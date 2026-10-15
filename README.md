@@ -204,11 +204,11 @@ nginx (`nginx/conf_m2/graphql_worker*.conf.template`, included by `install.sh`):
 
 Unset means `restricted`, so upgrading the module never widens what an
 existing install sends to the worker. The `.env` block from `install.sh`
-sets `default`. Any other value stops the worker from booting.
+sets `restricted` too. Any other value stops the worker from booting.
 
 Switching needs no nginx change: set the variable in `.env` and recreate
-the worker container. Each worker logs its mode at boot
-(`booted in default mode in N ms`).
+the worker container (`up -d`; `restart` keeps the old environment). Each
+worker logs its mode at boot (`booted in restricted mode in N ms`).
 
 ```bash
 docker compose -f docker-compose.yml -f frankenphp/docker-compose.frankenphp.yml up -d frankenphp
@@ -221,7 +221,9 @@ to its `.env`: `install.sh` does not append the block again. Re-run
 `default` mode runs customer data, carts and orders inside long-lived
 workers. Before you use it, the verification gate below must pass with
 every module you run, and the open items in [STATE_AUDIT.md](STATE_AUDIT.md)
-must not apply to your store.
+must not apply to your store. Do not use it with Stripe
+(`stripe/module-payments`) installed: Stripe keeps per-customer state on
+shared objects that `etc/reset.json` cannot reset (STATE_AUDIT.md #5).
 
 ## Rollout: canary via nginx
 
